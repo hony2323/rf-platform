@@ -72,6 +72,7 @@ class ProtocolCodec(Protocol):
     def encode_connect(
         self,
         node_id: str,
+        protocol_version: str,
         agent_version: str,
         requested_encoding: WireEncoding,
         hardware: HardwareInfo | None = None,
@@ -84,6 +85,7 @@ class ProtocolCodec(Protocol):
         node_id: str,
         session_id: str,
         stream_id: str,
+        timestamp_utc: str,
         rf_config: RFConfig,
         fft_semantics: FFTSemantics,
     ) -> str:
@@ -109,6 +111,7 @@ class ProtocolCodec(Protocol):
         self,
         node_id: str,
         session_id: str,
+        timestamp_utc: str,
     ) -> str:
         """Encode a `heartbeat` message → JSON string."""
         ...
@@ -117,6 +120,7 @@ class ProtocolCodec(Protocol):
         self,
         node_id: str,
         session_id: str,
+        timestamp_utc: str,
         metrics: AgentMetrics,
     ) -> str:
         """Encode an `agent_status` message → JSON string."""

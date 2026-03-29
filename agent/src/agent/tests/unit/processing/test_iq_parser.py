@@ -11,6 +11,8 @@ import math
 import struct
 
 import numpy as np
+import numpy.typing as npt
+import pytest
 
 from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 from agent.processing.parse_iq import IQParseErrorCode, IQParseResult, parse_iq
@@ -223,3 +225,172 @@ async def test_parse_real_ci16_dc_removal_reduces_channel_means(
     assert isinstance(result, IQParseResult)
     assert abs(float(result.samples[0::2].mean())) < 1e-4  # I channel
     assert abs(float(result.samples[1::2].mean())) < 1e-4  # Q channel
+
+
+# ---------------------------------------------------------------------------
+# Issue fixes and test-gap coverage
+# ---------------------------------------------------------------------------
+
+
+def test_parse_empty_buffer_returns_empty_buffer_error() -> None:
+    """Direct test for the EMPTY_BUFFER error code (gap #9)."""
+    descriptor = make_descriptor()
+    result = parse_iq(descriptor, b"")
+    assert not isinstance(result, IQParseResult)
+    assert result.code == IQParseErrorCode.EMPTY_BUFFER
+
+
+def test_parse_float32_clamps_values_exceeding_unit_range() -> None:
+    """float32 values outside [-1.0, 1.0] must be clamped (issue #3)."""
+    # Craft samples with I=2.0, Q=-3.0 — both out of range
+    values = [2.0, -3.0, 0.5, 0.5]  # 2 complex samples
+    buffer = struct.pack(f"<{len(values)}f", *values)
+    descriptor = make_descriptor(normalize=False, dc_offset_remove=False)
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    assert np.all(result.samples >= -1.0)
+    assert np.all(result.samples <= 1.0)
+    assert result.samples[0] == pytest.approx(1.0)   # 2.0 clamped to 1.0
+    assert result.samples[1] == pytest.approx(-1.0)  # -3.0 clamped to -1.0
+
+
+def test_parse_float32_values_within_range_are_unchanged() -> None:
+    """Clamp must not alter values already within [-1.0, 1.0]."""
+    values = [0.3, -0.7, 1.0, -1.0]
+    buffer = struct.pack(f"<{len(values)}f", *values)
+    descriptor = make_descriptor(normalize=False, dc_offset_remove=False)
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    np.testing.assert_array_almost_equal(
+        result.samples, np.array(values, dtype=np.float32)
+    )
+
+
+def test_parse_int16_normalize_false_returns_raw_integer_scale() -> None:
+    """normalize=False for int16: values NOT divided by 32768 (gap #10)."""
+    raw = [1000, -2000, 32767, -32768]
+    buffer = struct.pack(f"<{len(raw)}h", *raw)
+    descriptor = make_descriptor(
+        sample_format=SampleFormat.INT16,
+        normalize=False,
+        dc_offset_remove=False,
+    )
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    expected = np.array(raw, dtype=np.float32)
+    np.testing.assert_array_equal(result.samples, expected)
+
+
+def test_parse_uint8_normalize_false_returns_raw_byte_values() -> None:
+    """normalize=False for uint8: values NOT shifted/scaled (gap #10)."""
+    raw = [0, 64, 128, 255]
+    buffer = bytes(raw)
+    descriptor = make_descriptor(
+        sample_format=SampleFormat.UINT8,
+        normalize=False,
+        dc_offset_remove=False,
+    )
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    expected = np.array(raw, dtype=np.float32)
+    np.testing.assert_array_equal(result.samples, expected)
+
+
+def test_parse_big_endian_int16_normalizes_correctly() -> None:
+    """Big-endian int16 path (gap #7): byte-swapped values must decode correctly."""
+    raw = [32767, -32768]  # 1 complex sample
+    buffer = struct.pack(f">{len(raw)}h", *raw)  # big-endian
+    descriptor = make_descriptor(
+        sample_format=SampleFormat.INT16,
+        endianness=Endianness.BIG,
+        dc_offset_remove=False,
+    )
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    expected = np.array([v / 32768.0 for v in raw], dtype=np.float32)
+    np.testing.assert_array_almost_equal(result.samples, expected)
+
+
+def test_parse_big_endian_int16_differs_from_little_endian() -> None:
+    """Same bytes interpreted as BE vs LE produce different values (sanity check)."""
+    # 0x01 0x00 = 256 in big-endian, 1 in little-endian
+    buffer = struct.pack(">2h", 256, -256)  # big-endian bytes
+    desc_le = make_descriptor(
+        sample_format=SampleFormat.INT16,
+        endianness=Endianness.LITTLE,
+        normalize=False,
+        dc_offset_remove=False,
+    )
+    desc_be = make_descriptor(
+        sample_format=SampleFormat.INT16,
+        endianness=Endianness.BIG,
+        normalize=False,
+        dc_offset_remove=False,
+    )
+
+    result_le = parse_iq(desc_le, buffer)
+    result_be = parse_iq(desc_be, buffer)
+
+    assert isinstance(result_le, IQParseResult)
+    assert isinstance(result_be, IQParseResult)
+    assert not np.array_equal(result_le.samples, result_be.samples)
+
+
+def test_parse_float64_output_dtype_is_float32() -> None:
+    """float64 input must be downcast to float32 (gap #8)."""
+    values = [0.1, 0.2, 0.3, 0.4]  # 2 complex samples
+    buffer = struct.pack(f"<{len(values)}d", *values)
+    descriptor = make_descriptor(
+        sample_format=SampleFormat.FLOAT64,
+        dc_offset_remove=False,
+    )
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    assert result.samples.dtype == np.float32
+    assert result.sample_count == 2
+
+
+def test_parse_float64_values_match_float32_downcast() -> None:
+    """float64 values survive the downcast within float32 precision (gap #8)."""
+    values = [0.1, -0.2, 0.5, -0.5]
+    buffer = struct.pack(f"<{len(values)}d", *values)
+    descriptor = make_descriptor(
+        sample_format=SampleFormat.FLOAT64,
+        dc_offset_remove=False,
+    )
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    expected = np.array(values, dtype=np.float32)
+    np.testing.assert_array_almost_equal(result.samples, expected, decimal=6)
+
+
+def test_parse_returns_unsupported_format_error_when_decode_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UNSUPPORTED_FORMAT is reachable via _UnhandledFormatError (issue #2)."""
+    import agent.processing.parse_iq as module
+
+    def exploding_decode(*_: object) -> npt.NDArray[np.float32]:
+        raise module._UnhandledFormatError("hypothetical new format")
+
+    monkeypatch.setattr(module, "_decode_samples", exploding_decode)
+
+    descriptor = make_descriptor(dc_offset_remove=False)
+    result = parse_iq(descriptor, b"\x00" * 8)  # 8 bytes = 1 aligned float32 sample
+
+    assert not isinstance(result, IQParseResult)
+    assert result.code == IQParseErrorCode.UNSUPPORTED_FORMAT

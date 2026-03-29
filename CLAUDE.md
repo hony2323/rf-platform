@@ -125,3 +125,8 @@ The most important parser test is the **known-signal test** (pure tone at a know
 - Do not add `config_version` to `stream_config` messages — the server assigns it.
 - `bin_count` in `stream_config` is payload-authoritative for buffer allocation; `fft_size` is the authoritative RF parameter.
 - Post-MVP items (planar layout, binary_ws, msgpack, multi-tuner stream_id, epoch_ms, phase_rad, psd_db) are explicitly deferred — do not implement them.
+
+
+## Developer notes (made by human)
+You need to make sure that the changes that you make align with the original design of the code.  
+if you are not sure of the design and the flow you need to ask and clearify  

@@ -232,3 +232,53 @@ def test_agent_config_is_frozen() -> None:
     cfg = _make_agent_config()
     with pytest.raises(dataclasses.FrozenInstanceError):
         cfg.wire_encoding = WireEncoding.JSON_BASE64  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# RFConfig.bin_count / effective_bin_count  (issue #5)
+# ---------------------------------------------------------------------------
+
+
+def test_rf_config_default_bin_count_is_none() -> None:
+    cfg = _make_rf()
+    assert cfg.bin_count is None
+
+
+def test_rf_config_effective_bin_count_defaults_to_fft_size() -> None:
+    cfg = _make_rf()  # bin_count=None
+    assert cfg.effective_bin_count == cfg.fft_size
+
+
+def test_rf_config_effective_bin_count_uses_explicit_value() -> None:
+    cfg = RFConfig(
+        center_freq_hz=433_920_000,
+        sample_rate_hz=2_400_000,
+        fft_size=1024,
+        bin_count=512,
+    )
+    assert cfg.effective_bin_count == 512
+
+
+def test_rf_config_effective_bin_count_does_not_equal_fft_size_when_set() -> None:
+    cfg = RFConfig(
+        center_freq_hz=433_920_000,
+        sample_rate_hz=2_400_000,
+        fft_size=1024,
+        bin_count=512,
+    )
+    assert cfg.effective_bin_count != cfg.fft_size
+
+
+# ---------------------------------------------------------------------------
+# AgentConfig.stream_id  (issue #6)
+# ---------------------------------------------------------------------------
+
+
+def test_agent_config_default_stream_id() -> None:
+    cfg = _make_agent_config()
+    assert cfg.stream_id == "default"
+
+
+def test_agent_config_accepts_custom_stream_id() -> None:
+    cfg = _make_agent_config(stream_id="antenna-2")
+    assert cfg.stream_id == "antenna-2"

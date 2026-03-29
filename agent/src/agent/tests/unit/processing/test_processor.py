@@ -286,3 +286,56 @@ async def test_run_accumulates_across_multiple_queue_items() -> None:
         await task
 
     assert frame_q.qsize() == 1
+
+
+# ---------------------------------------------------------------------------
+# parse_error_count — observable drop counter (issue #4)
+# ---------------------------------------------------------------------------
+
+
+def test_push_parse_error_increments_error_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """parse_error_count increments when parse_iq returns an IQParseError."""
+    import agent.processing.processor as mod
+    from agent.processing.parse_iq import IQParseError, IQParseErrorCode
+
+    monkeypatch.setattr(
+        mod,
+        "parse_iq",
+        lambda *_: IQParseError(
+            code=IQParseErrorCode.UNSUPPORTED_FORMAT, message="injected error"
+        ),
+    )
+
+    proc = IQProcessor(make_descriptor(), make_rf_config())
+    assert proc.parse_error_count == 0
+
+    proc.push(make_float32_iq_bytes(_FFT_SIZE), _TIMESTAMP)
+    assert proc.parse_error_count == 1
+
+    proc.push(make_float32_iq_bytes(_FFT_SIZE), _TIMESTAMP)
+    assert proc.parse_error_count == 2
+
+
+def test_parse_error_count_not_reset_by_configure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """parse_error_count is a lifetime counter; configure() must not reset it."""
+    import agent.processing.processor as mod
+    from agent.processing.parse_iq import IQParseError, IQParseErrorCode
+
+    monkeypatch.setattr(
+        mod,
+        "parse_iq",
+        lambda *_: IQParseError(
+            code=IQParseErrorCode.UNSUPPORTED_FORMAT, message="injected"
+        ),
+    )
+
+    proc = IQProcessor(make_descriptor(), make_rf_config())
+    proc.push(make_float32_iq_bytes(_FFT_SIZE), _TIMESTAMP)
+    assert proc.parse_error_count == 1
+
+    proc.configure(make_rf_config())
+    assert proc.parse_error_count == 1  # preserved across reconfigure

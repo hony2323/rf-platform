@@ -75,10 +75,11 @@ class FFTProcessor:
             np.float32
         )
 
+        bin_count = config.effective_bin_count
         return SpectrumFrame(
-            payload=power_db.tobytes(),
+            payload=power_db[:bin_count].tobytes(),
             timestamp_utc=timestamp_utc,
-            bin_count=config.fft_size,
+            bin_count=bin_count,
         )
 
 

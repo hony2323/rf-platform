@@ -37,6 +37,7 @@ class IQProcessor:
         self._sample_buf: list[npt.NDArray[np.float32]] = []
         self._sample_count = 0
         self._remainder = b""
+        self.parse_error_count: int = 0  # lifetime counter; never resets
 
     def configure(self, rf_config: RFConfig) -> None:
         """Replace the active RF/FFT config.
@@ -73,7 +74,9 @@ class IQProcessor:
 
         result = parse_iq(self._descriptor, data)
         if isinstance(result, IQParseError):
-            # data is sample-aligned so this should not happen; drop defensively
+            # data is sample-aligned so this should not happen; increment counter
+            # to make silent drops observable (e.g. for telemetry / debugging).
+            self.parse_error_count += 1
             return []
 
         self._sample_buf.append(result.samples)
