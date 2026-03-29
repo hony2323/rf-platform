@@ -1,7 +1,8 @@
-"""Unit tests for parse_iq — Batch 1.
+"""Unit tests for parse_iq — Batch 1 + real SigMF data.
 
 Covers: float32 known-signal anchor, roundtrip values, int16/uint8
-normalization, DC offset removal, and error cases.
+normalization, DC offset removal, error cases, and parser correctness
+against the LTE uplink SigMF fixture (ci16_le, 847 MHz, 30.72 Msps).
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import pytest
 
 from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 from agent.processing.parse_iq import IQParseErrorCode, IQParseResult, parse_iq
+from agent.tests.conftest import SigMFBuffer  # noqa: F401 — used as fixture type hint
 
 
 # ---------------------------------------------------------------------------
@@ -144,3 +146,78 @@ def test_parse_rejects_incomplete_sample() -> None:
 
     assert not isinstance(result, IQParseResult)
     assert result.code == IQParseErrorCode.INCOMPLETE_SAMPLE
+
+
+# ---------------------------------------------------------------------------
+# Real SigMF data — LTE uplink fixture (ci16_le, 847 MHz, 30.72 Msps)
+# 256 000 bytes → 64 000 complex samples → 128 000 floats
+# ---------------------------------------------------------------------------
+
+_FIXTURE_BYTE_COUNT = 256_000
+_FIXTURE_SAMPLE_COUNT = 64_000   # file bytes / bytes_per_sample (4 for ci16_le)
+
+
+async def test_parse_real_ci16_succeeds(lte_ci16_raw: SigMFBuffer) -> None:
+    result = parse_iq(lte_ci16_raw.descriptor, lte_ci16_raw.raw_bytes)
+    assert isinstance(result, IQParseResult)
+
+
+async def test_parse_real_ci16_sample_count_matches_file_size(
+    lte_ci16_raw: SigMFBuffer,
+) -> None:
+    result = parse_iq(lte_ci16_raw.descriptor, lte_ci16_raw.raw_bytes)
+    assert isinstance(result, IQParseResult)
+    assert result.sample_count == _FIXTURE_SAMPLE_COUNT
+
+
+async def test_parse_real_ci16_output_length_is_sample_count_times_two(
+    lte_ci16_raw: SigMFBuffer,
+) -> None:
+    result = parse_iq(lte_ci16_raw.descriptor, lte_ci16_raw.raw_bytes)
+    assert isinstance(result, IQParseResult)
+    assert len(result.samples) == result.sample_count * 2
+
+
+async def test_parse_real_ci16_output_dtype_is_float32(
+    lte_ci16_raw: SigMFBuffer,
+) -> None:
+    result = parse_iq(lte_ci16_raw.descriptor, lte_ci16_raw.raw_bytes)
+    assert isinstance(result, IQParseResult)
+    assert result.samples.dtype == np.float32
+
+
+async def test_parse_real_ci16_normalized_values_within_unit_range(
+    lte_ci16_raw: SigMFBuffer,
+) -> None:
+    result = parse_iq(lte_ci16_raw.descriptor, lte_ci16_raw.raw_bytes)
+    assert isinstance(result, IQParseResult)
+    assert np.all(result.samples >= -1.0)
+    assert np.all(result.samples <= 1.0)
+
+
+async def test_parse_real_ci16_signal_has_nonzero_energy(
+    lte_ci16_raw: SigMFBuffer,
+) -> None:
+    """Guards against silent zero-fill or byte-order bugs that produce a flat signal."""
+    result = parse_iq(lte_ci16_raw.descriptor, lte_ci16_raw.raw_bytes)
+    assert isinstance(result, IQParseResult)
+    assert float(np.std(result.samples)) > 0.01
+
+
+async def test_parse_real_ci16_dc_removal_reduces_channel_means(
+    lte_ci16_raw: SigMFBuffer,
+) -> None:
+    descriptor_no_dc = lte_ci16_raw.descriptor
+    descriptor_dc = IQDescriptor(
+        sample_format=descriptor_no_dc.sample_format,
+        endianness=descriptor_no_dc.endianness,
+        layout=descriptor_no_dc.layout,
+        sample_rate_hz=descriptor_no_dc.sample_rate_hz,
+        center_freq_hz=descriptor_no_dc.center_freq_hz,
+        normalize=descriptor_no_dc.normalize,
+        dc_offset_remove=True,
+    )
+    result = parse_iq(descriptor_dc, lte_ci16_raw.raw_bytes)
+    assert isinstance(result, IQParseResult)
+    assert abs(float(result.samples[0::2].mean())) < 1e-4  # I channel
+    assert abs(float(result.samples[1::2].mean())) < 1e-4  # Q channel
