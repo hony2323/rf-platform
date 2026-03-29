@@ -9,12 +9,16 @@ RF Platform is a monorepo for live RF spectrum streaming. SDR agents on edge dev
 ## Repository layout
 
 ```
-agent/     Python package — runs on edge device with SDR hardware
-server/    Python package — central relay server
-web/       Node.js frontend — spectrum viewer UI
-protocol/  Documentation only — the wire contract (not code)
-docs/      Architecture and product docs
+agent/        Python package — runs on edge device with SDR hardware
+server/       Python package — central relay server
+web/          Node.js frontend — spectrum viewer UI
+protocol/     Documentation only — the wire contract (not code)
+docs/         Architecture and product docs
+recordings/   Large RF recordings for local dev (gitignored — never commit)
 ```
+
+Test fixtures (small, committed, CI-safe) live in `agent/src/agent/tests/fixtures/`.
+Full-length recordings go in `recordings/` at the repo root and are gitignored.
 
 ## Commands
 
