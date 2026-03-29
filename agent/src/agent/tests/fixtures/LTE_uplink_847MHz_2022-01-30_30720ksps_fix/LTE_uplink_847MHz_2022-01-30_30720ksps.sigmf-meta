@@ -1,0 +1,21 @@
+{
+  "global": {
+    "core:author": "Daniel Est\u00e9vez <daniel@destevez.net>",
+    "core:datatype": "ci16_le",
+    "core:description": "Recording of the LTE uplink signal of a UE in a 10 MHz B20 channel",
+    "core:hw": "USRP B205mini",
+    "core:license": "https://creativecommons.org/licenses/by/4.0/",
+    "core:recorder": "GNU Radio 3.9",
+    "core:sample_rate": 30720000,
+    "core:sha512": "8510449689939862fdcfc0e6c6f05a506ac6b2240e8e33d0c289ec894973f7969eb03e8ab9ed4898d99ca3888ad8478caf9653c37d70c92d8e36d01c3c248ada",
+    "core:version": "1.0.1"
+  },
+  "captures": [
+    {
+      "core:datetime": "2022-01-30T09:35:41",
+      "core:frequency": 847000000,
+      "core:sample_start": 0
+    }
+  ],
+  "annotations": []
+}
