@@ -51,6 +51,8 @@ ruff check src/
 ruff format src/
 ```
 
+Ruff is configured to enforce `E` (pycodestyle errors, including E501 line length), `F` (Pyflakes), and `UP` (pyupgrade). Import sorting (`I`), naming conventions (`N`), and warnings (`W`) are intentionally disabled.
+
 ### Server (`cd server`)
 
 ```bash
