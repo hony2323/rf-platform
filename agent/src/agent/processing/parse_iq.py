@@ -77,9 +77,7 @@ def _decode_samples(buffer: bytes, descriptor: IQDescriptor) -> npt.NDArray[np.f
     raise ValueError(f"unhandled sample_format: {fmt}")
 
 
-def parse_iq(
-    descriptor: IQDescriptor, buffer: bytes
-) -> IQParseResult | IQParseError:
+def parse_iq(descriptor: IQDescriptor, buffer: bytes) -> IQParseResult | IQParseError:
     """Parse raw IQ bytes into normalized float32 samples.
 
     Invariants (from iq_input_schema.md):

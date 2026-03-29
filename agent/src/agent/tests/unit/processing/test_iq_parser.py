@@ -50,8 +50,8 @@ def interleave_float32(i_ch: np.ndarray, q_ch: np.ndarray) -> bytes:
 def test_parse_float32_interleaved_known_signal_peak_bin_matches_expected() -> None:
     """Anchor test: validates byte order, interleaving, normalization, and
     that the output is usable by FFT with the expected fftshifted peak bin."""
-    f_tone = 100_000          # Hz
-    sample_rate = 2_400_000   # Hz
+    f_tone = 100_000  # Hz
+    sample_rate = 2_400_000  # Hz
     fft_size = n_samples = 131_072
     bin_size_hz = sample_rate / fft_size
 
@@ -156,7 +156,7 @@ def test_parse_rejects_incomplete_sample() -> None:
 # ---------------------------------------------------------------------------
 
 _FIXTURE_BYTE_COUNT = 256_000
-_FIXTURE_SAMPLE_COUNT = 64_000   # file bytes / bytes_per_sample (4 for ci16_le)
+_FIXTURE_SAMPLE_COUNT = 64_000  # file bytes / bytes_per_sample (4 for ci16_le)
 
 
 async def test_parse_real_ci16_succeeds(lte_ci16_raw: SigMFBuffer) -> None:

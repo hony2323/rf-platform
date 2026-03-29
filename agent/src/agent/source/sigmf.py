@@ -22,9 +22,9 @@ _DATATYPE_MAP: dict[str, tuple[SampleFormat, Endianness]] = {
     "cf32_be": (SampleFormat.FLOAT32, Endianness.BIG),
     "cf64_le": (SampleFormat.FLOAT64, Endianness.LITTLE),
     "cf64_be": (SampleFormat.FLOAT64, Endianness.BIG),
-    "cu8_le":  (SampleFormat.UINT8, Endianness.LITTLE),
+    "cu8_le": (SampleFormat.UINT8, Endianness.LITTLE),
     # endianness irrelevant for uint8
-    "cu8_be":  (SampleFormat.UINT8, Endianness.LITTLE),
+    "cu8_be": (SampleFormat.UINT8, Endianness.LITTLE),
 }
 
 _DEFAULT_BLOCK_BYTES = 65_536
@@ -99,8 +99,7 @@ class SigMFSource(IQSource):
         block_size = (self._block_size // bps) * bps
         if block_size == 0:
             raise ValueError(
-                f"block_size {self._block_size} is smaller"
-                f" than bytes_per_sample {bps}"
+                f"block_size {self._block_size} is smaller than bytes_per_sample {bps}"
             )
 
         with self._data_path.open("rb") as f:

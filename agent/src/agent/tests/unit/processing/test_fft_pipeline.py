@@ -111,7 +111,7 @@ def test_fft_processor_produces_log_power_float32_payload() -> None:
 
 def test_fft_processor_outputs_bins_in_low_to_high_order() -> None:
     """Peak of a tone at +f must land at bin fft_size//2 + k, not fft_size//2 - k."""
-    f_tone = 1_000     # Hz — bin-aligned: bin 10 from DC
+    f_tone = 1_000  # Hz — bin-aligned: bin 10 from DC
     expected_bin = _FFT_SIZE // 2 + round(f_tone / (_SAMPLE_RATE / _FFT_SIZE))  # 522
 
     proc = FFTProcessor()
@@ -131,7 +131,9 @@ def test_fft_processor_timestamp_is_capture_start_not_processing_end() -> None:
     assert frame.timestamp_utc == ts
 
 
-def test_fft_processor_reconfigure_changes_output_shape_and_resets_internal_state() -> None:  # noqa: E501
+def test_fft_processor_reconfigure_changes_output_shape_and_resets_internal_state() -> (
+    None
+):  # noqa: E501
     proc = FFTProcessor()
 
     # First config: fft_size=512

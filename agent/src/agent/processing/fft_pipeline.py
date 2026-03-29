@@ -71,9 +71,9 @@ class FFTProcessor:
         power_shifted = np.fft.fftshift(power)
 
         # Clamp before log to avoid -inf; floor of -120 dB is well below noise
-        power_db = (
-            10.0 * np.log10(np.maximum(power_shifted, 1e-12))
-        ).astype(np.float32)
+        power_db = (10.0 * np.log10(np.maximum(power_shifted, 1e-12))).astype(
+            np.float32
+        )
 
         return SpectrumFrame(
             payload=power_db.tobytes(),

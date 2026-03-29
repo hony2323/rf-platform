@@ -24,11 +24,9 @@ class SessionEventHandler(Protocol):
 
     async def on_state_change(
         self, old: ConnectionState, new: ConnectionState
-    ) -> None:
-        ...
+    ) -> None: ...
 
-    async def on_error(self, code: str, message: str, fatal: bool) -> None:
-        ...
+    async def on_error(self, code: str, message: str, fatal: bool) -> None: ...
 
 
 class Session(Protocol):
