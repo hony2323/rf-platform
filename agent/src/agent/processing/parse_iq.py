@@ -8,12 +8,10 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
-
-from typing import Literal
 
 from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 
@@ -30,7 +28,7 @@ class IQParseErrorCode(enum.Enum):
 class IQParseError:
     code: IQParseErrorCode
     message: str
-    offset: Optional[int] = None
+    offset: int | None = None
 
 
 @dataclass(frozen=True)
@@ -56,7 +54,8 @@ def _decode_samples(buffer: bytes, descriptor: IQDescriptor) -> npt.NDArray[np.f
     ec = _endian_char(descriptor.endianness)
 
     if fmt == SampleFormat.FLOAT32:
-        return np.frombuffer(buffer, dtype=np.dtype(np.float32).newbyteorder(ec)).astype(np.float32)
+        dtype = np.dtype(np.float32).newbyteorder(ec)
+        return np.frombuffer(buffer, dtype=dtype).astype(np.float32)
 
     if fmt == SampleFormat.INT16:
         raw = np.frombuffer(buffer, dtype=np.dtype(np.int16).newbyteorder(ec))
@@ -78,9 +77,7 @@ def _decode_samples(buffer: bytes, descriptor: IQDescriptor) -> npt.NDArray[np.f
     raise ValueError(f"unhandled sample_format: {fmt}")
 
 
-def parse_iq(
-    descriptor: IQDescriptor, buffer: bytes
-) -> Union[IQParseResult, IQParseError]:
+def parse_iq(descriptor: IQDescriptor, buffer: bytes) -> IQParseResult | IQParseError:
     """Parse raw IQ bytes into normalized float32 samples.
 
     Invariants (from iq_input_schema.md):
@@ -90,19 +87,27 @@ def parse_iq(
     - mean(I) ≈ 0 and mean(Q) ≈ 0 when dc_offset_remove=True
     """
     if len(buffer) == 0:
-        return IQParseError(code=IQParseErrorCode.EMPTY_BUFFER, message="buffer is empty")
+        return IQParseError(
+            code=IQParseErrorCode.EMPTY_BUFFER, message="buffer is empty"
+        )
 
     if descriptor.layout != Layout.INTERLEAVED:
         return IQParseError(
             code=IQParseErrorCode.UNSUPPORTED_LAYOUT,
-            message=f"layout {descriptor.layout.value} is not supported (MVP: interleaved only)",
+            message=(
+                f"layout {descriptor.layout.value} is not supported"
+                " (MVP: interleaved only)"
+            ),
         )
 
     bps = descriptor.bytes_per_sample
     if len(buffer) % bps != 0:
         return IQParseError(
             code=IQParseErrorCode.INCOMPLETE_SAMPLE,
-            message=f"buffer length {len(buffer)} is not a multiple of bytes_per_sample {bps}",
+            message=(
+                f"buffer length {len(buffer)} is not a multiple"
+                f" of bytes_per_sample {bps}"
+            ),
             offset=len(buffer) - (len(buffer) % bps),
         )
 

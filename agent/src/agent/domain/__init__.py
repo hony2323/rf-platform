@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from typing import Optional
-
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -151,9 +149,9 @@ class SpectrumFrame:
 
 @dataclass(frozen=True)
 class HardwareInfo:
-    vendor: Optional[str] = None
-    model: Optional[str] = None
-    serial: Optional[str] = None
+    vendor: str | None = None
+    model: str | None = None
+    serial: str | None = None
 
 
 # ---------------------------------------------------------------------------

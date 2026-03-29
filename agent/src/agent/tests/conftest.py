@@ -57,5 +57,6 @@ def lte_ci16_raw() -> SigMFBuffer:
         sample_rate_hz=30_720_000,
         center_freq_hz=847_000_000,
     )
-    raw_bytes = (_LTE_DIR / "LTE_uplink_847MHz_2022-01-30_30720ksps.sigmf-data").read_bytes()
+    data_file = _LTE_DIR / "LTE_uplink_847MHz_2022-01-30_30720ksps.sigmf-data"
+    raw_bytes = data_file.read_bytes()
     return SigMFBuffer(descriptor=descriptor, raw_bytes=raw_bytes)

@@ -7,7 +7,7 @@ Transforms between domain objects and wire-format bytes/dicts.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol, Union
+from typing import Protocol
 
 from agent.domain import (
     AgentMetrics,
@@ -17,7 +17,6 @@ from agent.domain import (
     SpectrumFrame,
     WireEncoding,
 )
-
 
 # ---------------------------------------------------------------------------
 # Inbound message types (server → agent)
@@ -56,7 +55,7 @@ class ServerError:
     frame_index: int | None = None
 
 
-InboundMessage = Union[ConnectAck, StreamConfigAck, Disconnect, ServerError]
+InboundMessage = ConnectAck | StreamConfigAck | Disconnect | ServerError
 
 
 # ---------------------------------------------------------------------------

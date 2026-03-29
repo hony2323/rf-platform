@@ -38,11 +38,11 @@ def make_config(**kwargs: object) -> RFConfig:
 def make_tone(f_hz: float, sample_rate: int, n_samples: int) -> np.ndarray:
     """Interleaved float32 IQ for a complex tone at f_hz, amplitude 0.5."""
     t = np.arange(n_samples) / sample_rate
-    I = np.cos(2 * math.pi * f_hz * t).astype(np.float32) * 0.5
-    Q = np.sin(2 * math.pi * f_hz * t).astype(np.float32) * 0.5
+    i_ch = np.cos(2 * math.pi * f_hz * t).astype(np.float32) * 0.5
+    q_ch = np.sin(2 * math.pi * f_hz * t).astype(np.float32) * 0.5
     buf = np.empty(n_samples * 2, dtype=np.float32)
-    buf[0::2] = I
-    buf[1::2] = Q
+    buf[0::2] = i_ch
+    buf[1::2] = q_ch
     return buf
 
 
@@ -79,7 +79,9 @@ def test_fft_processor_applies_hann_window_when_configured() -> None:
     # Reference: manual Hann window + FFT + coherent-gain normalization + dBFS
     window = np.hanning(_FFT_SIZE)
     window_norm = float(np.sum(window))
-    complex_in = samples[0::2].astype(np.float64) + 1j * samples[1::2].astype(np.float64)
+    i_f64 = samples[0::2].astype(np.float64)
+    q_f64 = samples[1::2].astype(np.float64)
+    complex_in = i_f64 + 1j * q_f64
     fft_out = np.fft.fft(complex_in * window)
     power_db_ref = (
         10.0 * np.log10(np.maximum((np.abs(fft_out) / window_norm) ** 2, 1e-12))
@@ -109,7 +111,7 @@ def test_fft_processor_produces_log_power_float32_payload() -> None:
 
 def test_fft_processor_outputs_bins_in_low_to_high_order() -> None:
     """Peak of a tone at +f must land at bin fft_size//2 + k, not fft_size//2 - k."""
-    f_tone = 1_000     # Hz — bin-aligned: bin 10 from DC
+    f_tone = 1_000  # Hz — bin-aligned: bin 10 from DC
     expected_bin = _FFT_SIZE // 2 + round(f_tone / (_SAMPLE_RATE / _FFT_SIZE))  # 522
 
     proc = FFTProcessor()
@@ -129,7 +131,9 @@ def test_fft_processor_timestamp_is_capture_start_not_processing_end() -> None:
     assert frame.timestamp_utc == ts
 
 
-def test_fft_processor_reconfigure_changes_output_shape_and_resets_internal_state() -> None:
+def test_fft_processor_reconfigure_changes_output_shape_and_resets_internal_state() -> (
+    None
+):  # noqa: E501
     proc = FFTProcessor()
 
     # First config: fft_size=512

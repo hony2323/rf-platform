@@ -11,12 +11,10 @@ import math
 import struct
 
 import numpy as np
-import pytest
 
 from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 from agent.processing.parse_iq import IQParseErrorCode, IQParseResult, parse_iq
 from agent.tests.conftest import SigMFBuffer  # noqa: F401 — used as fixture type hint
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,10 +35,10 @@ def make_descriptor(**kwargs: object) -> IQDescriptor:
     return IQDescriptor(**defaults)  # type: ignore[arg-type]
 
 
-def interleave_float32(I: np.ndarray, Q: np.ndarray) -> bytes:
-    buf = np.empty(len(I) * 2, dtype=np.float32)
-    buf[0::2] = I
-    buf[1::2] = Q
+def interleave_float32(i_ch: np.ndarray, q_ch: np.ndarray) -> bytes:
+    buf = np.empty(len(i_ch) * 2, dtype=np.float32)
+    buf[0::2] = i_ch
+    buf[1::2] = q_ch
     return buf.tobytes()
 
 
@@ -52,15 +50,15 @@ def interleave_float32(I: np.ndarray, Q: np.ndarray) -> bytes:
 def test_parse_float32_interleaved_known_signal_peak_bin_matches_expected() -> None:
     """Anchor test: validates byte order, interleaving, normalization, and
     that the output is usable by FFT with the expected fftshifted peak bin."""
-    f_tone = 100_000          # Hz
-    sample_rate = 2_400_000   # Hz
+    f_tone = 100_000  # Hz
+    sample_rate = 2_400_000  # Hz
     fft_size = n_samples = 131_072
     bin_size_hz = sample_rate / fft_size
 
     t = np.arange(n_samples) / sample_rate
-    I = np.cos(2 * math.pi * f_tone * t).astype(np.float32) * 0.5
-    Q = np.sin(2 * math.pi * f_tone * t).astype(np.float32) * 0.5
-    buffer = interleave_float32(I, Q)
+    i_ch = np.cos(2 * math.pi * f_tone * t).astype(np.float32) * 0.5
+    q_ch = np.sin(2 * math.pi * f_tone * t).astype(np.float32) * 0.5
+    buffer = interleave_float32(i_ch, q_ch)
 
     descriptor = make_descriptor(dc_offset_remove=False)
     result = parse_iq(descriptor, buffer)
@@ -96,7 +94,9 @@ def test_parse_float32_roundtrip_values_preserved() -> None:
 def test_parse_int16_normalizes_using_divide_by_32768() -> None:
     raw = [32767, -32768, 0, 16384]
     buffer = struct.pack(f"<{len(raw)}h", *raw)
-    descriptor = make_descriptor(sample_format=SampleFormat.INT16, dc_offset_remove=False)
+    descriptor = make_descriptor(
+        sample_format=SampleFormat.INT16, dc_offset_remove=False
+    )
 
     result = parse_iq(descriptor, buffer)
 
@@ -110,7 +110,9 @@ def test_parse_int16_normalizes_using_divide_by_32768() -> None:
 def test_parse_uint8_normalizes_using_center_and_scale() -> None:
     raw = [0, 127, 255, 128]
     buffer = bytes(raw)
-    descriptor = make_descriptor(sample_format=SampleFormat.UINT8, dc_offset_remove=False)
+    descriptor = make_descriptor(
+        sample_format=SampleFormat.UINT8, dc_offset_remove=False
+    )
 
     result = parse_iq(descriptor, buffer)
 
@@ -125,9 +127,9 @@ def test_parse_uint8_normalizes_using_center_and_scale() -> None:
 def test_parse_applies_dc_offset_removal_when_enabled() -> None:
     n = 64
     # bias: I channel at +0.3, Q channel at -0.2
-    I = np.full(n, 0.3, dtype=np.float32)
-    Q = np.full(n, -0.2, dtype=np.float32)
-    buffer = interleave_float32(I, Q)
+    i_ch = np.full(n, 0.3, dtype=np.float32)
+    q_ch = np.full(n, -0.2, dtype=np.float32)
+    buffer = interleave_float32(i_ch, q_ch)
     descriptor = make_descriptor(normalize=False, dc_offset_remove=True)
 
     result = parse_iq(descriptor, buffer)
@@ -154,7 +156,7 @@ def test_parse_rejects_incomplete_sample() -> None:
 # ---------------------------------------------------------------------------
 
 _FIXTURE_BYTE_COUNT = 256_000
-_FIXTURE_SAMPLE_COUNT = 64_000   # file bytes / bytes_per_sample (4 for ci16_le)
+_FIXTURE_SAMPLE_COUNT = 64_000  # file bytes / bytes_per_sample (4 for ci16_le)
 
 
 async def test_parse_real_ci16_succeeds(lte_ci16_raw: SigMFBuffer) -> None:

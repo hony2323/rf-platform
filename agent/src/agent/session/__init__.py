@@ -10,18 +10,13 @@ States: DISCONNECTED → CONNECTING → CONNECTED → CONFIGURED → STREAMING
 from __future__ import annotations
 
 import asyncio
-from typing import Callable, Protocol
+from typing import Protocol
 
 from agent.domain import (
     ConnectionState,
-    FFTSemantics,
-    HardwareInfo,
     RFConfig,
     SpectrumFrame,
-    WireEncoding,
 )
-from agent.protocol import InboundMessage
-from agent.transport import Transport
 
 
 class SessionEventHandler(Protocol):
@@ -29,11 +24,9 @@ class SessionEventHandler(Protocol):
 
     async def on_state_change(
         self, old: ConnectionState, new: ConnectionState
-    ) -> None:
-        ...
+    ) -> None: ...
 
-    async def on_error(self, code: str, message: str, fatal: bool) -> None:
-        ...
+    async def on_error(self, code: str, message: str, fatal: bool) -> None: ...
 
 
 class Session(Protocol):
