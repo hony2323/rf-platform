@@ -1,4 +1,4 @@
-"""IQ sample parser interface.
+"""IQ sample parser.
 
 Contract: accepts (descriptor, bytes), returns normalized float32 samples.
 Stateless. Source-agnostic. Matches iq_input_schema.md.
@@ -13,7 +13,9 @@ from typing import Optional, Union
 import numpy as np
 import numpy.typing as npt
 
-from agent.domain import IQDescriptor
+from typing import Literal
+
+from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 
 
 class IQParseErrorCode(enum.Enum):
@@ -44,12 +46,42 @@ class IQParseResult:
     sample_count: int
 
 
+def _endian_char(endianness: Endianness) -> Literal["<", ">"]:
+    return "<" if endianness == Endianness.LITTLE else ">"
+
+
+def _decode_samples(buffer: bytes, descriptor: IQDescriptor) -> npt.NDArray[np.float32]:
+    """Convert raw bytes to float32 array, applying normalization per format."""
+    fmt = descriptor.sample_format
+    ec = _endian_char(descriptor.endianness)
+
+    if fmt == SampleFormat.FLOAT32:
+        return np.frombuffer(buffer, dtype=np.dtype(np.float32).newbyteorder(ec)).astype(np.float32)
+
+    if fmt == SampleFormat.INT16:
+        raw = np.frombuffer(buffer, dtype=np.dtype(np.int16).newbyteorder(ec))
+        if descriptor.normalize:
+            return (raw / 32768.0).astype(np.float32)
+        return raw.astype(np.float32)
+
+    if fmt == SampleFormat.UINT8:
+        raw = np.frombuffer(buffer, dtype=np.uint8).astype(np.float32)
+        if descriptor.normalize:
+            return ((raw - 127.5) / 127.5).astype(np.float32)
+        return raw
+
+    if fmt == SampleFormat.FLOAT64:
+        # downcasts to float32 after normalization per schema
+        raw = np.frombuffer(buffer, dtype=np.dtype(np.float64).newbyteorder(ec))
+        return raw.astype(np.float32)
+
+    raise ValueError(f"unhandled sample_format: {fmt}")
+
+
 def parse_iq(
     descriptor: IQDescriptor, buffer: bytes
 ) -> Union[IQParseResult, IQParseError]:
     """Parse raw IQ bytes into normalized float32 samples.
-
-    This is the interface. Implementation goes in source/iq_parser.py.
 
     Invariants (from iq_input_schema.md):
     - len(samples) == sample_count * 2
@@ -57,4 +89,27 @@ def parse_iq(
     - all samples in [-1.0, 1.0] when normalize=True
     - mean(I) ≈ 0 and mean(Q) ≈ 0 when dc_offset_remove=True
     """
-    raise NotImplementedError
+    if len(buffer) == 0:
+        return IQParseError(code=IQParseErrorCode.EMPTY_BUFFER, message="buffer is empty")
+
+    if descriptor.layout != Layout.INTERLEAVED:
+        return IQParseError(
+            code=IQParseErrorCode.UNSUPPORTED_LAYOUT,
+            message=f"layout {descriptor.layout.value} is not supported (MVP: interleaved only)",
+        )
+
+    bps = descriptor.bytes_per_sample
+    if len(buffer) % bps != 0:
+        return IQParseError(
+            code=IQParseErrorCode.INCOMPLETE_SAMPLE,
+            message=f"buffer length {len(buffer)} is not a multiple of bytes_per_sample {bps}",
+            offset=len(buffer) - (len(buffer) % bps),
+        )
+
+    samples = _decode_samples(buffer, descriptor).copy()
+
+    if descriptor.dc_offset_remove:
+        samples[0::2] -= float(samples[0::2].mean())
+        samples[1::2] -= float(samples[1::2].mean())
+
+    return IQParseResult(samples=samples, sample_count=len(samples) // 2)
