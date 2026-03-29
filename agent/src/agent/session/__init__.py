@@ -10,18 +10,13 @@ States: DISCONNECTED → CONNECTING → CONNECTED → CONFIGURED → STREAMING
 from __future__ import annotations
 
 import asyncio
-from typing import Callable, Protocol
+from typing import Protocol
 
 from agent.domain import (
     ConnectionState,
-    FFTSemantics,
-    HardwareInfo,
     RFConfig,
     SpectrumFrame,
-    WireEncoding,
 )
-from agent.protocol import InboundMessage
-from agent.transport import Transport
 
 
 class SessionEventHandler(Protocol):

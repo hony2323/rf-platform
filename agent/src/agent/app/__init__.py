@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from agent.config import AgentConfig
-
 
 class AgentRuntime(Protocol):
     """Top-level agent lifecycle."""

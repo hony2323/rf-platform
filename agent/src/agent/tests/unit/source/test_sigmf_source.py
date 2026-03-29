@@ -14,8 +14,7 @@ import pytest
 
 from agent.domain import Endianness, Layout, SampleFormat
 from agent.processing.parse_iq import IQParseResult, parse_iq
-from agent.source.sigmf import SigMFSource, UnsupportedSigMFDatatype
-
+from agent.source.sigmf import SigMFSource, UnsupportedSigMFDatatypeError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -98,7 +97,7 @@ async def test_sigmf_source_start_raises_on_unsupported_datatype(
         encoding="utf-8",
     )
     source = SigMFSource(meta)
-    with pytest.raises(UnsupportedSigMFDatatype):
+    with pytest.raises(UnsupportedSigMFDatatypeError):
         await source.start()
 
 

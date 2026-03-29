@@ -6,8 +6,6 @@ Output: SpectrumFrame — float32 log-power payload, bin_order=low_to_high, dBFS
 
 from __future__ import annotations
 
-from typing import Optional
-
 import numpy as np
 import numpy.typing as npt
 
@@ -22,8 +20,8 @@ class FFTProcessor:
     """
 
     def __init__(self) -> None:
-        self._config: Optional[RFConfig] = None
-        self._window: Optional[npt.NDArray[np.float64]] = None
+        self._config: RFConfig | None = None
+        self._window: npt.NDArray[np.float64] | None = None
         self._window_norm: float = 1.0
 
     def configure(self, config: RFConfig) -> None:
@@ -61,7 +59,9 @@ class FFTProcessor:
             )
 
         # float64 throughout for FFT numerical precision; cast to float32 at output
-        complex_in = samples[0::2].astype(np.float64) + 1j * samples[1::2].astype(np.float64)
+        i_f64 = samples[0::2].astype(np.float64)
+        q_f64 = samples[1::2].astype(np.float64)
+        complex_in = i_f64 + 1j * q_f64
 
         windowed = complex_in * self._window
         fft_out = np.fft.fft(windowed)
@@ -71,7 +71,9 @@ class FFTProcessor:
         power_shifted = np.fft.fftshift(power)
 
         # Clamp before log to avoid -inf; floor of -120 dB is well below noise
-        power_db = (10.0 * np.log10(np.maximum(power_shifted, 1e-12))).astype(np.float32)
+        power_db = (
+            10.0 * np.log10(np.maximum(power_shifted, 1e-12))
+        ).astype(np.float32)
 
         return SpectrumFrame(
             payload=power_db.tobytes(),
