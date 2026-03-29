@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rf-agent"
+version = "0.3.0"
+requires-python = ">=3.10"
+description = "SDR agent for RF spectrum streaming"
+dependencies = [
+    "numpy>=1.24",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+sdr = [
+    "pyrtlsdr>=0.3.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "mypy>=1.8",
+    "ruff>=0.3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent"]
+exclude = ["src/agent/tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/agent/tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: marks integration tests (deselect with '-m \"not integration\"')",
+]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+packages = ["agent"]
+mypy_path = "src"
+
+[tool.ruff]
+target-version = "py310"
+src = ["src", "src/agent/tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]

@@ -1,0 +1,57 @@
+"""Agent configuration.
+
+Loads and validates agent config from file / env / CLI.
+Produces typed config objects consumed by other modules.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from agent.domain import IQDescriptor, RFConfig, WireEncoding
+
+
+@dataclass(frozen=True)
+class ServerConfig:
+    url: str  # wss://...
+    token: str  # bearer token
+
+
+@dataclass(frozen=True)
+class AgentIdentity:
+    node_id: str
+    agent_version: str = "0.3.0"
+
+
+@dataclass(frozen=True)
+class QueueConfig:
+    iq_queue_size: int = 4
+    frame_queue_size: int = 8
+
+
+@dataclass(frozen=True)
+class TelemetryConfig:
+    heartbeat_interval_s: float = 5.0
+    status_interval_s: float = 10.0
+
+
+@dataclass(frozen=True)
+class ReconnectConfig:
+    initial_delay_s: float = 1.0
+    max_delay_s: float = 30.0
+    backoff_factor: float = 2.0
+    jitter: bool = True
+
+
+@dataclass(frozen=True)
+class AgentConfig:
+    """Root config object. Composed from all sub-configs."""
+
+    identity: AgentIdentity
+    server: ServerConfig
+    rf: RFConfig
+    iq: IQDescriptor
+    wire_encoding: WireEncoding = WireEncoding.JSON_BASE64
+    queues: QueueConfig = field(default_factory=QueueConfig)
+    telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
+    reconnect: ReconnectConfig = field(default_factory=ReconnectConfig)
