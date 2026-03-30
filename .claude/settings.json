@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "deny": [
-      "Read(src/agent/tests/unit/data/recordings/**)",
-      "Grep(src/agent/tests/unit/data/recordings/**)"
-    ]
-  }
-}
