@@ -12,11 +12,14 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol
 
+from agent.config import AgentConfig
 from agent.domain import (
     ConnectionState,
     RFConfig,
     SpectrumFrame,
 )
+from agent.protocol import ProtocolCodec
+from agent.transport import Transport
 
 
 class SessionEventHandler(Protocol):
@@ -32,20 +35,43 @@ class SessionEventHandler(Protocol):
 class Session(Protocol):
     """Manages the agent-server protocol lifecycle."""
 
+
+class SessionManager:
+    def __init__(
+        self,
+        *,
+        config: AgentConfig,
+        transport: Transport,
+        codec: ProtocolCodec,
+    ) -> None:
+        self._config = config
+        self._transport = transport
+        self._codec = codec
+
+        self._state = ConnectionState.DISCONNECTED
+
+        self._session_id: str | None = None
+        self._config_version: int | None = None
+        self._next_frame_index: int = 0
+
+        self._pending_config_update = False
+        self._closed = False
+
     @property
     def state(self) -> ConnectionState:
-        """Current state machine state."""
-        ...
+        return self._state
 
     @property
     def session_id(self) -> str | None:
-        """Server-assigned session ID, available after CONNECTED."""
-        ...
+        return self._session_id
 
     @property
     def config_version(self) -> int | None:
-        """Server-assigned config version, available after CONFIGURED."""
-        ...
+        return self._config_version
+
+    @property
+    def next_frame_index(self) -> int:
+        return self._next_frame_index
 
     async def run(
         self,
