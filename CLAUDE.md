@@ -17,7 +17,7 @@ docs/         Architecture and product docs
 recordings/   Large RF recordings for local dev (gitignored — never commit)
 ```
 
-Test fixtures (small, committed, CI-safe) live in `agent/src/agent/tests/fixtures/`.
+Test fixtures (small, committed, CI-safe) live in `agent/src/tests/fixtures/`.
 Full-length recordings go in `recordings/` at the repo root and are gitignored.
 
 ## Commands
@@ -38,10 +38,10 @@ pytest
 pytest -m "not integration"
 
 # Run a single test file
-pytest src/agent/tests/unit/processing/test_parse_iq.py
+pytest src/tests/unit/processing/test_parse_iq.py
 
 # Run a single test
-pytest src/agent/tests/unit/processing/test_parse_iq.py::test_name
+pytest src/tests/unit/processing/test_parse_iq.py::test_name
 
 # Type check
 mypy src/agent

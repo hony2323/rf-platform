@@ -16,7 +16,7 @@ import pytest
 
 from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 from agent.processing.parse_iq import IQParseErrorCode, IQParseResult, parse_iq
-from agent.tests.conftest import SigMFBuffer  # noqa: F401 — used as fixture type hint
+from tests.conftest import SigMFBuffer  # noqa: F401 — used as fixture type hint
 
 # ---------------------------------------------------------------------------
 # Helpers
