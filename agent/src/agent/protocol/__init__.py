@@ -144,18 +144,14 @@ class ProtocolCodec(Protocol):
 
 def _require_str(value: Any, field: str) -> str:
     if not isinstance(value, str):
-        raise ValueError(
-            f"'{field}' must be a string, got {type(value).__name__!r}"
-        )
+        raise ValueError(f"'{field}' must be a string, got {type(value).__name__!r}")
     return value
 
 
 def _require_int(value: Any, field: str) -> int:
     """Accept int only; reject bool (bool is a subclass of int in Python)."""
     if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(
-            f"'{field}' must be an integer, got {type(value).__name__!r}"
-        )
+        raise ValueError(f"'{field}' must be an integer, got {type(value).__name__!r}")
     return value
 
 
@@ -318,9 +314,7 @@ class JsonBase64Codec:
         try:
             wire_encoding = WireEncoding(wire_encoding_raw)
         except ValueError:
-            raise ValueError(
-                f"Unknown wire_encoding value: {wire_encoding_raw!r}"
-            )
+            raise ValueError(f"Unknown wire_encoding value: {wire_encoding_raw!r}")
         return ConnectAck(
             session_id=session_id,
             status=status,
@@ -360,9 +354,7 @@ class JsonBase64Codec:
             raise ValueError(f"Missing required field: {exc}") from exc
 
         if not isinstance(fatal, bool):
-            raise ValueError(
-                f"'fatal' must be a boolean, got {type(fatal).__name__!r}"
-            )
+            raise ValueError(f"'fatal' must be a boolean, got {type(fatal).__name__!r}")
 
         stream_id: str | None = None
         if (stream_id_raw := msg.get("stream_id")) is not None:

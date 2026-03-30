@@ -51,9 +51,7 @@ def _endian_char(endianness: Endianness) -> Literal["<", ">"]:
     return "<" if endianness == Endianness.LITTLE else ">"
 
 
-def _decode_samples(
-    buffer: bytes, descriptor: IQDescriptor
-) -> npt.NDArray[np.float32]:
+def _decode_samples(buffer: bytes, descriptor: IQDescriptor) -> npt.NDArray[np.float32]:
     """Convert raw bytes to float32 array, applying normalization per format."""
     fmt = descriptor.sample_format
     ec = _endian_char(descriptor.endianness)
@@ -85,9 +83,7 @@ def _decode_samples(
     raise _UnhandledFormatError(f"unhandled sample_format: {fmt!r}")
 
 
-def parse_iq(
-    descriptor: IQDescriptor, buffer: bytes
-) -> IQParseResult | IQParseError:
+def parse_iq(descriptor: IQDescriptor, buffer: bytes) -> IQParseResult | IQParseError:
     """Parse raw IQ bytes into normalized float32 samples.
 
     Invariants (from iq_input_schema.md):
