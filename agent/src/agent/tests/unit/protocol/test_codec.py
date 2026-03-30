@@ -73,11 +73,11 @@ def make_fft_semantics() -> FFTSemantics:
 
 
 # ---------------------------------------------------------------------------
-# 1. Roundtrip: outbound messages (encode → json.loads → assert field values)
+# 1. Outbound encode tests (encode → json.loads → assert field values)
 # ---------------------------------------------------------------------------
 
 
-def test_encode_connect_roundtrip(codec: JsonBase64Codec) -> None:
+def test_encode_connect_emits_expected_fields(codec: JsonBase64Codec) -> None:
     hw = HardwareInfo(vendor="RTL-SDR", model="RTL2832U", serial="00000001")
     raw = codec.encode_connect(
         node_id=_NODE_ID,
@@ -97,7 +97,7 @@ def test_encode_connect_roundtrip(codec: JsonBase64Codec) -> None:
     assert msg["hardware"]["serial"] == "00000001"
 
 
-def test_encode_connect_roundtrip_without_hardware(codec: JsonBase64Codec) -> None:
+def test_encode_connect_omits_hardware_when_none(codec: JsonBase64Codec) -> None:
     raw = codec.encode_connect(
         node_id=_NODE_ID,
         protocol_version=_PROTOCOL_VERSION,
@@ -111,7 +111,7 @@ def test_encode_connect_roundtrip_without_hardware(codec: JsonBase64Codec) -> No
     assert "hardware" not in msg
 
 
-def test_encode_stream_config_roundtrip(codec: JsonBase64Codec) -> None:
+def test_encode_stream_config_emits_expected_fields(codec: JsonBase64Codec) -> None:
     rf = RFConfig(
         center_freq_hz=433_920_000,
         sample_rate_hz=2_400_000,
@@ -152,7 +152,7 @@ def test_encode_stream_config_roundtrip(codec: JsonBase64Codec) -> None:
     assert msg["fft_semantics"]["bin_order"] == "low_to_high"
 
 
-def test_encode_spectrum_frame_roundtrip_decodes_payload_back_to_original_bytes(
+def test_encode_spectrum_frame_base64_encodes_payload(
     codec: JsonBase64Codec,
 ) -> None:
     payload = make_payload_bytes(64)  # 64 bytes = 16 float32 bins
@@ -177,7 +177,7 @@ def test_encode_spectrum_frame_roundtrip_decodes_payload_back_to_original_bytes(
     assert decoded_payload == payload
 
 
-def test_encode_heartbeat_roundtrip(codec: JsonBase64Codec) -> None:
+def test_encode_heartbeat_emits_expected_fields(codec: JsonBase64Codec) -> None:
     raw = codec.encode_heartbeat(
         node_id=_NODE_ID,
         session_id=_SESSION_ID,
@@ -191,7 +191,7 @@ def test_encode_heartbeat_roundtrip(codec: JsonBase64Codec) -> None:
     assert "stream_id" not in msg
 
 
-def test_encode_agent_status_roundtrip(codec: JsonBase64Codec) -> None:
+def test_encode_agent_status_emits_expected_fields(codec: JsonBase64Codec) -> None:
     metrics = make_agent_metrics()
     raw = codec.encode_agent_status(
         node_id=_NODE_ID,
@@ -215,7 +215,7 @@ def test_encode_agent_status_roundtrip(codec: JsonBase64Codec) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2. Roundtrip: inbound messages (build wire dict → decode → assert typed fields)
+# 2. Inbound decode roundtrips (wire dict → decode → assert typed fields)
 # ---------------------------------------------------------------------------
 
 
@@ -306,7 +306,7 @@ def test_decode_error_roundtrip_with_optional_fields_omitted(
 
 
 # ---------------------------------------------------------------------------
-# 3. Validation / failure tests
+# 3. Validation / failure tests — unknown / malformed top-level inputs
 # ---------------------------------------------------------------------------
 
 
@@ -316,33 +316,43 @@ def test_decode_rejects_unknown_msg_type(codec: JsonBase64Codec) -> None:
         codec.decode(wire)
 
 
+def test_decode_rejects_outbound_only_spectrum_frame_message_type(
+    codec: JsonBase64Codec,
+) -> None:
+    # spectrum_frame is outbound-only; decode must reject it as unknown
+    wire = json.dumps({"msg_type": "spectrum_frame"})
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
 def test_decode_rejects_invalid_json(codec: JsonBase64Codec) -> None:
     with pytest.raises(ValueError):
         codec.decode("not valid json {")
 
 
-def test_decode_rejects_message_missing_required_fields(codec: JsonBase64Codec) -> None:
+def test_decode_rejects_non_object_json(codec: JsonBase64Codec) -> None:
+    for value in ("[1, 2, 3]", '"a string"', "42"):
+        with pytest.raises(ValueError):
+            codec.decode(value)
+
+
+def test_decode_accepts_bytes_input(codec: JsonBase64Codec) -> None:
+    wire = {
+        "msg_type": "connect_ack",
+        "session_id": _SESSION_ID,
+        "status": "ok",
+        "wire_encoding": "json_base64",
+    }
+    result = codec.decode(json.dumps(wire).encode())
+    assert isinstance(result, ConnectAck)
+    assert result.session_id == _SESSION_ID
+
+
+def test_decode_rejects_message_missing_required_fields(
+    codec: JsonBase64Codec,
+) -> None:
     # connect_ack missing session_id and wire_encoding
     wire = json.dumps({"msg_type": "connect_ack", "status": "ok"})
-    with pytest.raises(ValueError):
-        codec.decode(wire)
-
-
-def test_decode_rejects_invalid_base64_payload_in_spectrum_frame(
-    codec: JsonBase64Codec,
-) -> None:
-    # spectrum_frame is an outbound-only message type — decode must reject it
-    wire = json.dumps(
-        {"msg_type": "spectrum_frame", "data": {"payload": "!!!invalid_base64!!!"}}
-    )
-    with pytest.raises(ValueError):
-        codec.decode(wire)
-
-
-def test_decode_rejects_spectrum_frame_missing_data_payload(
-    codec: JsonBase64Codec,
-) -> None:
-    wire = json.dumps({"msg_type": "spectrum_frame"})
     with pytest.raises(ValueError):
         codec.decode(wire)
 
@@ -363,7 +373,165 @@ def test_decode_rejects_error_with_non_boolean_fatal(codec: JsonBase64Codec) -> 
 
 
 # ---------------------------------------------------------------------------
-# 4. Payload tests
+# 4. Validation / failure tests — wrong field types
+# ---------------------------------------------------------------------------
+
+
+def test_decode_rejects_connect_ack_session_id_non_string(
+    codec: JsonBase64Codec,
+) -> None:
+    wire = json.dumps(
+        {
+            "msg_type": "connect_ack",
+            "session_id": 123,
+            "status": "ok",
+            "wire_encoding": "json_base64",
+        }
+    )
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
+def test_decode_rejects_connect_ack_unknown_wire_encoding(
+    codec: JsonBase64Codec,
+) -> None:
+    wire = json.dumps(
+        {
+            "msg_type": "connect_ack",
+            "session_id": _SESSION_ID,
+            "status": "ok",
+            "wire_encoding": "msgpack",
+        }
+    )
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
+def test_decode_rejects_stream_config_ack_config_version_string(
+    codec: JsonBase64Codec,
+) -> None:
+    wire = json.dumps(
+        {
+            "msg_type": "stream_config_ack",
+            "session_id": _SESSION_ID,
+            "stream_id": _STREAM_ID,
+            "config_version": "1",
+            "status": "ok",
+        }
+    )
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
+def test_decode_rejects_stream_config_ack_config_version_float(
+    codec: JsonBase64Codec,
+) -> None:
+    wire = json.dumps(
+        {
+            "msg_type": "stream_config_ack",
+            "session_id": _SESSION_ID,
+            "stream_id": _STREAM_ID,
+            "config_version": 1.5,
+            "status": "ok",
+        }
+    )
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
+def test_decode_rejects_stream_config_ack_config_version_bool(
+    codec: JsonBase64Codec,
+) -> None:
+    wire = json.dumps(
+        {
+            "msg_type": "stream_config_ack",
+            "session_id": _SESSION_ID,
+            "stream_id": _STREAM_ID,
+            "config_version": True,
+            "status": "ok",
+        }
+    )
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
+def test_decode_rejects_disconnect_reason_non_string(
+    codec: JsonBase64Codec,
+) -> None:
+    wire = json.dumps(
+        {
+            "msg_type": "disconnect",
+            "session_id": _SESSION_ID,
+            "reason": 42,
+        }
+    )
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
+def test_decode_rejects_error_code_non_string(codec: JsonBase64Codec) -> None:
+    wire = json.dumps(
+        {
+            "msg_type": "error",
+            "session_id": _SESSION_ID,
+            "code": 404,
+            "message": "test",
+            "fatal": False,
+        }
+    )
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
+def test_decode_rejects_error_stream_id_non_string(codec: JsonBase64Codec) -> None:
+    wire = json.dumps(
+        {
+            "msg_type": "error",
+            "session_id": _SESSION_ID,
+            "stream_id": 99,
+            "code": "INVALID_FRAME",
+            "message": "test",
+            "fatal": False,
+        }
+    )
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
+def test_decode_rejects_error_config_version_string(
+    codec: JsonBase64Codec,
+) -> None:
+    wire = json.dumps(
+        {
+            "msg_type": "error",
+            "session_id": _SESSION_ID,
+            "config_version": "2",
+            "code": "INVALID_FRAME",
+            "message": "test",
+            "fatal": False,
+        }
+    )
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
+def test_decode_rejects_error_frame_index_string(codec: JsonBase64Codec) -> None:
+    wire = json.dumps(
+        {
+            "msg_type": "error",
+            "session_id": _SESSION_ID,
+            "frame_index": "1024",
+            "code": "INVALID_FRAME",
+            "message": "test",
+            "fatal": False,
+        }
+    )
+    with pytest.raises(ValueError):
+        codec.decode(wire)
+
+
+# ---------------------------------------------------------------------------
+# 5. Payload tests
 # ---------------------------------------------------------------------------
 
 

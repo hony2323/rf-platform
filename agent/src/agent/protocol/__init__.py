@@ -138,6 +138,28 @@ class ProtocolCodec(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# Validation helpers
+# ---------------------------------------------------------------------------
+
+
+def _require_str(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(
+            f"'{field}' must be a string, got {type(value).__name__!r}"
+        )
+    return value
+
+
+def _require_int(value: Any, field: str) -> int:
+    """Accept int only; reject bool (bool is a subclass of int in Python)."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(
+            f"'{field}' must be an integer, got {type(value).__name__!r}"
+        )
+    return value
+
+
+# ---------------------------------------------------------------------------
 # Concrete implementation — json_base64 encoding (MVP)
 # ---------------------------------------------------------------------------
 
@@ -288,36 +310,51 @@ class JsonBase64Codec:
 
     def _decode_connect_ack(self, msg: dict[str, Any]) -> ConnectAck:
         try:
-            return ConnectAck(
-                session_id=msg["session_id"],
-                status=msg["status"],
-                wire_encoding=WireEncoding(msg["wire_encoding"]),
-            )
+            session_id = _require_str(msg["session_id"], "session_id")
+            status = _require_str(msg["status"], "status")
+            wire_encoding_raw = msg["wire_encoding"]
         except KeyError as exc:
             raise ValueError(f"Missing required field: {exc}") from exc
+        try:
+            wire_encoding = WireEncoding(wire_encoding_raw)
+        except ValueError:
+            raise ValueError(
+                f"Unknown wire_encoding value: {wire_encoding_raw!r}"
+            )
+        return ConnectAck(
+            session_id=session_id,
+            status=status,
+            wire_encoding=wire_encoding,
+        )
 
     def _decode_stream_config_ack(self, msg: dict[str, Any]) -> StreamConfigAck:
         try:
-            return StreamConfigAck(
-                session_id=msg["session_id"],
-                stream_id=msg["stream_id"],
-                config_version=int(msg["config_version"]),
-                status=msg["status"],
-            )
+            session_id = _require_str(msg["session_id"], "session_id")
+            stream_id = _require_str(msg["stream_id"], "stream_id")
+            config_version = _require_int(msg["config_version"], "config_version")
+            status = _require_str(msg["status"], "status")
         except KeyError as exc:
             raise ValueError(f"Missing required field: {exc}") from exc
+        return StreamConfigAck(
+            session_id=session_id,
+            stream_id=stream_id,
+            config_version=config_version,
+            status=status,
+        )
 
     def _decode_disconnect(self, msg: dict[str, Any]) -> Disconnect:
         try:
-            return Disconnect(
-                session_id=msg["session_id"],
-                reason=msg["reason"],
-            )
+            session_id = _require_str(msg["session_id"], "session_id")
+            reason = _require_str(msg["reason"], "reason")
         except KeyError as exc:
             raise ValueError(f"Missing required field: {exc}") from exc
+        return Disconnect(session_id=session_id, reason=reason)
 
     def _decode_server_error(self, msg: dict[str, Any]) -> ServerError:
         try:
+            session_id = _require_str(msg["session_id"], "session_id")
+            code = _require_str(msg["code"], "code")
+            message = _require_str(msg["message"], "message")
             fatal = msg["fatal"]
         except KeyError as exc:
             raise ValueError(f"Missing required field: {exc}") from exc
@@ -327,15 +364,24 @@ class JsonBase64Codec:
                 f"'fatal' must be a boolean, got {type(fatal).__name__!r}"
             )
 
-        try:
-            return ServerError(
-                session_id=msg["session_id"],
-                code=msg["code"],
-                message=msg["message"],
-                fatal=fatal,
-                stream_id=msg.get("stream_id"),
-                config_version=msg.get("config_version"),
-                frame_index=msg.get("frame_index"),
-            )
-        except KeyError as exc:
-            raise ValueError(f"Missing required field: {exc}") from exc
+        stream_id: str | None = None
+        if (stream_id_raw := msg.get("stream_id")) is not None:
+            stream_id = _require_str(stream_id_raw, "stream_id")
+
+        config_version: int | None = None
+        if (config_version_raw := msg.get("config_version")) is not None:
+            config_version = _require_int(config_version_raw, "config_version")
+
+        frame_index: int | None = None
+        if (frame_index_raw := msg.get("frame_index")) is not None:
+            frame_index = _require_int(frame_index_raw, "frame_index")
+
+        return ServerError(
+            session_id=session_id,
+            code=code,
+            message=message,
+            fatal=fatal,
+            stream_id=stream_id,
+            config_version=config_version,
+            frame_index=frame_index,
+        )
