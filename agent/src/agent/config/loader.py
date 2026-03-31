@@ -8,7 +8,7 @@ with typed objects.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from agent.config.errors import ConfigValidationError
 from agent.domain import (
@@ -156,9 +156,9 @@ def _load_iq(raw: Any) -> IQDescriptor:
     normalize = _load_bool(sec.get("normalize", True), "iq.normalize")
 
     return IQDescriptor(
-        sample_format=sample_format,  # type: ignore[arg-type]
-        endianness=endianness,  # type: ignore[arg-type]
-        layout=layout,  # type: ignore[arg-type]
+        sample_format=sample_format,
+        endianness=endianness,
+        layout=layout,
         sample_rate_hz=sample_rate_hz,
         center_freq_hz=center_freq_hz,
         dc_offset_remove=dc_offset_remove,
@@ -210,8 +210,9 @@ def _load_stream_id(value: Any) -> str:
 
 
 def _load_wire_encoding(value: Any) -> WireEncoding:
-    result = _load_enum(value, WireEncoding, "wire_encoding", required=True)
-    return result  # type: ignore[return-value]
+    return cast(
+        WireEncoding, _load_enum(value, WireEncoding, "wire_encoding", required=True)
+    )
 
 
 def _load_queues(raw: Any) -> QueueConfig:
