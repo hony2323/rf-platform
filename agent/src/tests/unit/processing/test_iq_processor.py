@@ -89,7 +89,8 @@ def _fake_frame(fft_size: int = 4, timestamp: str = _TIMESTAMP) -> SpectrumFrame
 def test_push_returns_no_frame_when_chunk_contains_only_remainder_bytes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A sub-sample-size chunk must be stored as remainder; parse_iq must not be called."""
+    """A sub-sample-size chunk must be stored as remainder;
+    parse_iq must not be called."""
     import agent.processing.processor as mod
 
     parse_calls: list[bytes] = []
@@ -113,7 +114,8 @@ def test_push_returns_no_frame_when_chunk_contains_only_remainder_bytes(
 def test_push_prepends_previous_remainder_and_parses_once_data_becomes_sample_aligned(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Remainder bytes from push N are prepended to push N+1 before parse_iq is called."""
+    """Remainder bytes from push N are
+    prepended to push N+1 before parse_iq is called."""
     import agent.processing.processor as mod
 
     captured_buffers: list[bytes] = []
@@ -144,7 +146,8 @@ def test_push_prepends_previous_remainder_and_parses_once_data_becomes_sample_al
 def test_push_accumulates_parsed_samples_until_fft_size_is_reached(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Parsed samples accumulate across pushes; FFT fires only once fft_size is reached."""
+    """Parsed samples accumulate across pushes;
+    FFT fires only once fft_size is reached."""
     import agent.processing.processor as mod
     from agent.processing import fft_pipeline
 
@@ -177,7 +180,8 @@ def test_push_accumulates_parsed_samples_until_fft_size_is_reached(
 def test_push_calls_fft_with_exactly_fft_size_complex_samples_not_all_buffered_samples(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """FFT receives exactly fft_size*2 floats even when the push delivered more samples."""
+    """FFT receives exactly fft_size*2 floats
+    even when the push delivered more samples."""
     import agent.processing.processor as mod
     from agent.processing import fft_pipeline
 
@@ -271,7 +275,8 @@ def test_push_emits_multiple_frames_when_single_push_contains_multiple_fft_windo
 def test_configure_clears_sample_accumulation_and_byte_remainder(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """configure() must flush both the byte remainder and the sample accumulation buffer."""
+    """configure() must flush both the byte remainder
+    and the sample accumulation buffer."""
     import agent.processing.processor as mod
 
     def fake_parse(descriptor: IQDescriptor, buffer: bytes) -> IQParseResult:
@@ -300,7 +305,8 @@ def test_configure_clears_sample_accumulation_and_byte_remainder(
 def test_push_after_configure_uses_new_fft_size_immediately(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """After configure(), the new fft_size governs frame emission; old buffer is gone."""
+    """After configure(), the new fft_size governs frame emission;
+    old buffer is gone."""
     import agent.processing.processor as mod
     from agent.processing import fft_pipeline
 
@@ -474,10 +480,11 @@ async def test_run_uses_chunk_dequeue_time_as_timestamp_input_to_push(
 # ---------------------------------------------------------------------------
 
 
-def test_push_with_real_parser_and_real_fft_emits_one_real_spectrum_frame_when_enough_float32_iq_arrives() -> (
+def test_push_with_real_parser_and_real_fft_emits_one_real_spectrum_frame_when_enough_float32_iq_arrives() -> (  # noqa: E501
     None
 ):
-    """Full pipeline (real parse_iq + real FFTProcessor): float32 IQ → valid SpectrumFrame."""
+    """Full pipeline (real parse_iq + real FFTProcessor):
+    float32 IQ → valid SpectrumFrame."""
     fft_size = 4
     proc = IQProcessor(
         make_descriptor(normalize=True),
