@@ -58,9 +58,13 @@ def _make_connect(
 ) -> object:
     """Return an async callable that records call args and returns fake_ws."""
 
-    async def _connect(url: str, additional_headers: dict[str, str] | None = None, **_: object) -> FakeWebSocket:
+    async def _connect(
+        url: str, additional_headers: dict[str, str] | None = None, **_: object
+    ) -> FakeWebSocket:
         if captured is not None:
-            captured.append({"url": url, "additional_headers": additional_headers or {}})
+            captured.append(
+                {"url": url, "additional_headers": additional_headers or {}}
+            )
         return fake_ws
 
     return _connect
@@ -241,7 +245,9 @@ async def test_transport_new_connect_replaces_old_session_id() -> None:
 
     connect_calls = 0
 
-    async def _connect(url: str, additional_headers: dict[str, str] | None = None, **_: object) -> FakeWebSocket:
+    async def _connect(
+        url: str, additional_headers: dict[str, str] | None = None, **_: object
+    ) -> FakeWebSocket:
         nonlocal connect_calls
         connect_calls += 1
         return first_ws if connect_calls == 1 else second_ws
