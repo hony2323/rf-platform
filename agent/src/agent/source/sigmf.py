@@ -42,12 +42,20 @@ class SigMFSource(IQSource):
                     expected alongside it with the same stem.
         block_size: Approximate read size in bytes. Rounded down to the
                     nearest sample boundary before use.
+        loops:      Number of times to play the recording. 1 = play once
+                    (default, no looping). None = loop forever.
     """
 
-    def __init__(self, meta_path: Path, block_size: int = _DEFAULT_BLOCK_BYTES) -> None:
+    def __init__(
+        self,
+        meta_path: Path,
+        block_size: int = _DEFAULT_BLOCK_BYTES,
+        loops: int | None = 1,
+    ) -> None:
         self._meta_path = meta_path
         self._data_path = meta_path.with_suffix(".sigmf-data")
         self._block_size = block_size
+        self._loops = loops
         self._descriptor: IQDescriptor | None = None
 
     @property
@@ -102,15 +110,18 @@ class SigMFSource(IQSource):
                 f"block_size {self._block_size} is smaller than bytes_per_sample {bps}"
             )
 
-        with self._data_path.open("rb") as f:
-            while True:
-                chunk = f.read(block_size)
-                if not chunk:
-                    break
-                # Trim trailing partial sample (shouldn't happen for well-formed
-                # files, but be defensive)
-                remainder = len(chunk) % bps
-                if remainder:
-                    chunk = chunk[:-remainder]
-                if chunk:
-                    await output.put(chunk)
+        iteration = 0
+        while self._loops is None or iteration < self._loops:
+            with self._data_path.open("rb") as f:
+                while True:
+                    chunk = f.read(block_size)
+                    if not chunk:
+                        break
+                    # Trim trailing partial sample (shouldn't happen for well-formed
+                    # files, but be defensive)
+                    remainder = len(chunk) % bps
+                    if remainder:
+                        chunk = chunk[:-remainder]
+                    if chunk:
+                        await output.put(chunk)
+            iteration += 1
