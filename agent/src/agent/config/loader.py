@@ -90,9 +90,7 @@ def _load_server(raw: Any) -> ServerConfig:
     if not url:
         raise ConfigValidationError("server.url: must be a non-empty string")
     if not (url.startswith("ws://") or url.startswith("wss://")):
-        raise ConfigValidationError(
-            "server.url: must start with 'ws://' or 'wss://'"
-        )
+        raise ConfigValidationError("server.url: must start with 'ws://' or 'wss://'")
 
     token = sec.get("token")
     if token is None:
@@ -110,9 +108,7 @@ def _load_identity(raw: Any) -> AgentIdentity:
     if node_id is None:
         raise ConfigValidationError("identity.node_id: required")
     if not isinstance(node_id, str) or not node_id:
-        raise ConfigValidationError(
-            "identity.node_id: must be a non-empty string"
-        )
+        raise ConfigValidationError("identity.node_id: must be a non-empty string")
 
     agent_version_raw = sec.get("agent_version", "0.3.0")
     if not isinstance(agent_version_raw, str) or not agent_version_raw:
@@ -145,9 +141,7 @@ def _load_iq(raw: Any) -> IQDescriptor:
         required=True,
     )
     if layout is not None and layout != Layout.INTERLEAVED:
-        raise ConfigValidationError(
-            "iq.layout: only 'interleaved' is supported in MVP"
-        )
+        raise ConfigValidationError("iq.layout: only 'interleaved' is supported in MVP")
 
     sample_rate_hz = _require_positive_int(
         sec.get("sample_rate_hz"), "iq.sample_rate_hz"
@@ -258,13 +252,9 @@ def _load_reconnect(raw: Any) -> ReconnectConfig:
     )
     backoff = sec.get("backoff_factor", 2.0)
     if not isinstance(backoff, (int, float)) or isinstance(backoff, bool):
-        raise ConfigValidationError(
-            "reconnect.backoff_factor: must be a number"
-        )
+        raise ConfigValidationError("reconnect.backoff_factor: must be a number")
     if backoff < 1.0:
-        raise ConfigValidationError(
-            "reconnect.backoff_factor: must be >= 1.0"
-        )
+        raise ConfigValidationError("reconnect.backoff_factor: must be >= 1.0")
     if max_delay < initial:
         raise ConfigValidationError(
             "reconnect.max_delay_s: must be >= reconnect.initial_delay_s"
@@ -307,9 +297,7 @@ def _require_positive_int(value: Any, field: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise ConfigValidationError(f"{field}: must be an integer")
     if value <= 0:
-        raise ConfigValidationError(
-            f"{field}: must be a positive integer, got {value}"
-        )
+        raise ConfigValidationError(f"{field}: must be a positive integer, got {value}")
     return value
 
 
