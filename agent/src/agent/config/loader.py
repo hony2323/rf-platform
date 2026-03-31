@@ -7,6 +7,7 @@ with typed objects.
 
 from __future__ import annotations
 
+import enum
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -156,9 +157,9 @@ def _load_iq(raw: Any) -> IQDescriptor:
     normalize = _load_bool(sec.get("normalize", True), "iq.normalize")
 
     return IQDescriptor(
-        sample_format=sample_format,
-        endianness=endianness,
-        layout=layout,
+        sample_format=cast(SampleFormat, sample_format),
+        endianness=cast(Endianness, endianness),
+        layout=cast(Layout, layout),
         sample_rate_hz=sample_rate_hz,
         center_freq_hz=center_freq_hz,
         dc_offset_remove=dc_offset_remove,
@@ -198,7 +199,11 @@ def _load_rf(raw: Any) -> RFConfig:
         center_freq_hz=center_freq_hz,
         sample_rate_hz=sample_rate_hz,
         fft_size=fft_size,
-        window_fn=window_fn if window_fn is not None else WindowFunction.HANN,
+        window_fn=(
+            cast(WindowFunction, window_fn)
+            if window_fn is not None
+            else WindowFunction.HANN
+        ),
         bin_count=bin_count,
     )
 
@@ -316,16 +321,16 @@ def _load_bool(value: Any, field: str) -> bool:
     return value
 
 
-_ENUM_VALUES: dict[type[Any], dict[str, Any]] = {}
+_ENUM_VALUES: dict[type[enum.Enum], dict[str, enum.Enum]] = {}
 
 
 def _load_enum(
     value: Any,
-    enum_cls: type[Any],
+    enum_cls: type[enum.Enum],
     field: str,
     *,
     required: bool,
-) -> Any:
+) -> enum.Enum | None:
     if value is None:
         if required:
             raise ConfigValidationError(f"{field}: required")
