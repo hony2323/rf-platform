@@ -251,7 +251,7 @@ def test_parse_float32_normalize_true_clips_out_of_range_values() -> None:
     assert isinstance(result, IQParseResult)
     assert np.all(result.samples >= -1.0)
     assert np.all(result.samples <= 1.0)
-    assert result.samples[0] == pytest.approx(1.0)   # 2.0 clipped
+    assert result.samples[0] == pytest.approx(1.0)  # 2.0 clipped
     assert result.samples[1] == pytest.approx(-1.0)  # -3.0 clipped
 
 
@@ -451,7 +451,7 @@ def test_parse_float64_normalize_true_clips_to_unit_range() -> None:
     assert isinstance(result, IQParseResult)
     assert np.all(result.samples >= -1.0)
     assert np.all(result.samples <= 1.0)
-    assert result.samples[0] == pytest.approx(1.0)   # 2.0 clipped
+    assert result.samples[0] == pytest.approx(1.0)  # 2.0 clipped
     assert result.samples[1] == pytest.approx(-1.0)  # -3.0 clipped
 
 
