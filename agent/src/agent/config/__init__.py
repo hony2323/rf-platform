@@ -2,6 +2,11 @@
 
 Loads and validates agent config from file / env / CLI.
 Produces typed config objects consumed by other modules.
+
+Public API
+----------
+load_config_dict   -- parse raw dict → AgentConfig (raises ConfigValidationError)
+ConfigValidationError -- raised on any validation failure
 """
 
 from __future__ import annotations
@@ -58,3 +63,20 @@ class AgentConfig:
     queues: QueueConfig = field(default_factory=QueueConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     reconnect: ReconnectConfig = field(default_factory=ReconnectConfig)
+
+
+# Re-export public loading API so callers can do:
+#   from agent.config import load_config_dict, ConfigValidationError
+from agent.config.errors import ConfigValidationError  # noqa: E402
+from agent.config.loader import load_config_dict  # noqa: E402
+
+__all__ = [
+    "AgentConfig",
+    "AgentIdentity",
+    "ConfigValidationError",
+    "QueueConfig",
+    "ReconnectConfig",
+    "ServerConfig",
+    "TelemetryConfig",
+    "load_config_dict",
+]
