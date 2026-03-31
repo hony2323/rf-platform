@@ -59,9 +59,9 @@ def _decode_samples(buffer: bytes, descriptor: IQDescriptor) -> npt.NDArray[np.f
     if fmt == SampleFormat.FLOAT32:
         dtype = np.dtype(np.float32).newbyteorder(ec)
         samples = np.frombuffer(buffer, dtype=dtype).astype(np.float32)
-        # Spec: float32 normalization is a clamp check; hardware may produce
-        # values slightly outside [-1.0, 1.0] due to overflow or calibration.
-        return np.clip(samples, -1.0, 1.0)
+        if descriptor.normalize:
+            return np.clip(samples, -1.0, 1.0)
+        return samples
 
     if fmt == SampleFormat.INT16:
         raw = np.frombuffer(buffer, dtype=np.dtype(np.int16).newbyteorder(ec))
@@ -76,9 +76,11 @@ def _decode_samples(buffer: bytes, descriptor: IQDescriptor) -> npt.NDArray[np.f
         return raw
 
     if fmt == SampleFormat.FLOAT64:
-        # downcasts to float32 after normalization per schema
         raw = np.frombuffer(buffer, dtype=np.dtype(np.float64).newbyteorder(ec))
-        return raw.astype(np.float32)
+        samples = raw.astype(np.float32)
+        if descriptor.normalize:
+            return np.clip(samples, -1.0, 1.0)
+        return samples
 
     raise _UnhandledFormatError(f"unhandled sample_format: {fmt!r}")
 

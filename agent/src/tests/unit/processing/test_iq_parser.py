@@ -240,27 +240,40 @@ def test_parse_empty_buffer_returns_empty_buffer_error() -> None:
     assert result.code == IQParseErrorCode.EMPTY_BUFFER
 
 
-def test_parse_float32_clamps_values_exceeding_unit_range() -> None:
-    """float32 values outside [-1.0, 1.0] must be clamped (issue #3)."""
-    # Craft samples with I=2.0, Q=-3.0 — both out of range
+def test_parse_float32_normalize_true_clips_out_of_range_values() -> None:
+    """float32 with normalize=True: values outside [-1.0, 1.0] must be clipped."""
     values = [2.0, -3.0, 0.5, 0.5]  # 2 complex samples
     buffer = struct.pack(f"<{len(values)}f", *values)
-    descriptor = make_descriptor(normalize=False, dc_offset_remove=False)
+    descriptor = make_descriptor(normalize=True, dc_offset_remove=False)
 
     result = parse_iq(descriptor, buffer)
 
     assert isinstance(result, IQParseResult)
     assert np.all(result.samples >= -1.0)
     assert np.all(result.samples <= 1.0)
-    assert result.samples[0] == pytest.approx(1.0)  # 2.0 clamped to 1.0
-    assert result.samples[1] == pytest.approx(-1.0)  # -3.0 clamped to -1.0
+    assert result.samples[0] == pytest.approx(1.0)   # 2.0 clipped
+    assert result.samples[1] == pytest.approx(-1.0)  # -3.0 clipped
+
+
+def test_parse_float32_normalize_false_preserves_out_of_range_values() -> None:
+    """float32 with normalize=False: values outside [-1.0, 1.0] must pass through."""
+    values = [2.0, -3.0, 0.5, 0.5]
+    buffer = struct.pack(f"<{len(values)}f", *values)
+    descriptor = make_descriptor(normalize=False, dc_offset_remove=False)
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    np.testing.assert_array_almost_equal(
+        result.samples, np.array(values, dtype=np.float32)
+    )
 
 
 def test_parse_float32_values_within_range_are_unchanged() -> None:
-    """Clamp must not alter values already within [-1.0, 1.0]."""
+    """normalize=True must not alter values already within [-1.0, 1.0]."""
     values = [0.3, -0.7, 1.0, -1.0]
     buffer = struct.pack(f"<{len(values)}f", *values)
-    descriptor = make_descriptor(normalize=False, dc_offset_remove=False)
+    descriptor = make_descriptor(normalize=True, dc_offset_remove=False)
 
     result = parse_iq(descriptor, buffer)
 
@@ -376,6 +389,85 @@ def test_parse_float64_values_match_float32_downcast() -> None:
     assert isinstance(result, IQParseResult)
     expected = np.array(values, dtype=np.float32)
     np.testing.assert_array_almost_equal(result.samples, expected, decimal=6)
+
+
+def test_parse_float32_big_endian_roundtrip_values_preserved() -> None:
+    """Big-endian float32 path: byte order must flip correctly."""
+    values = [0.1, -0.2, 0.3, -0.4]
+    buffer = struct.pack(f">{len(values)}f", *values)
+    descriptor = make_descriptor(
+        endianness=Endianness.BIG, normalize=False, dc_offset_remove=False
+    )
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    assert result.samples.dtype == np.float32
+    assert result.sample_count == len(values) // 2
+    np.testing.assert_array_almost_equal(
+        result.samples, np.array(values, dtype=np.float32)
+    )
+
+
+def test_parse_skips_dc_offset_removal_when_disabled() -> None:
+    """When dc_offset_remove=False, channel bias must survive unchanged."""
+    n = 64
+    i_ch = np.full(n, 0.3, dtype=np.float32)
+    q_ch = np.full(n, -0.2, dtype=np.float32)
+    buffer = interleave_float32(i_ch, q_ch)
+    descriptor = make_descriptor(normalize=False, dc_offset_remove=False)
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    assert abs(float(result.samples[0::2].mean()) - 0.3) < 1e-5
+    assert abs(float(result.samples[1::2].mean()) - (-0.2)) < 1e-5
+
+
+def test_parse_output_length_matches_sample_count_times_two() -> None:
+    """Invariant: len(samples) == sample_count * 2."""
+    n_samples = 16
+    i_ch = np.zeros(n_samples, dtype=np.float32)
+    q_ch = np.zeros(n_samples, dtype=np.float32)
+    buffer = interleave_float32(i_ch, q_ch)
+    descriptor = make_descriptor(dc_offset_remove=False)
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    assert len(result.samples) == result.sample_count * 2
+
+
+def test_parse_float64_normalize_true_clips_to_unit_range() -> None:
+    """float64 with normalize=True: out-of-range values must be clipped."""
+    values = [2.0, -3.0, 0.5, -0.5]
+    buffer = struct.pack(f"<{len(values)}d", *values)
+    descriptor = make_descriptor(
+        sample_format=SampleFormat.FLOAT64, normalize=True, dc_offset_remove=False
+    )
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    assert np.all(result.samples >= -1.0)
+    assert np.all(result.samples <= 1.0)
+    assert result.samples[0] == pytest.approx(1.0)   # 2.0 clipped
+    assert result.samples[1] == pytest.approx(-1.0)  # -3.0 clipped
+
+
+def test_parse_float64_normalize_false_preserves_out_of_range() -> None:
+    """float64 with normalize=False: values outside [-1.0, 1.0] must pass through."""
+    values = [2.0, -3.0, 0.5, -0.5]
+    buffer = struct.pack(f"<{len(values)}d", *values)
+    descriptor = make_descriptor(
+        sample_format=SampleFormat.FLOAT64, normalize=False, dc_offset_remove=False
+    )
+
+    result = parse_iq(descriptor, buffer)
+
+    assert isinstance(result, IQParseResult)
+    expected = np.array(values, dtype=np.float32)
+    np.testing.assert_array_almost_equal(result.samples, expected)
 
 
 def test_parse_returns_unsupported_format_error_when_decode_raises(
