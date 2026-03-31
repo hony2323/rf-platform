@@ -7,14 +7,21 @@ against the LTE uplink SigMF fixture (ci16_le, 847 MHz, 30.72 Msps).
 
 from __future__ import annotations
 
-import math
 import struct
 
 import numpy as np
 import numpy.typing as npt
 import pytest
 
-from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
+from agent.domain import (
+    Endianness,
+    IQDescriptor,
+    Layout,
+    RFConfig,
+    SampleFormat,
+    WindowFunction,
+)
+from agent.processing.fft_pipeline import FFTProcessor
 from agent.processing.parse_iq import IQParseErrorCode, IQParseResult, parse_iq
 from tests.conftest import SigMFBuffer  # noqa: F401 — used as fixture type hint
 
@@ -51,46 +58,76 @@ def interleave_float32(i_ch: np.ndarray, q_ch: np.ndarray) -> bytes:
 
 def test_parse_float32_interleaved_known_signal_peak_bin_matches_expected() -> None:
     """Anchor test: validates byte order, interleaving, normalization, and
-    that the output is usable by FFT with the expected fftshifted peak bin."""
-    f_tone = 100_000  # Hz
-    sample_rate = 2_400_000  # Hz
-    fft_size = n_samples = 131_072
-    bin_size_hz = sample_rate / fft_size
+    that FFTProcessor produces the correct fftshifted peak bin.
 
-    t = np.arange(n_samples) / sample_rate
-    i_ch = np.cos(2 * math.pi * f_tone * t).astype(np.float32) * 0.5
-    q_ch = np.sin(2 * math.pi * f_tone * t).astype(np.float32) * 0.5
-    buffer = interleave_float32(i_ch, q_ch)
+    Uses an exact-bin tone (f_tone = k * Fs / N) so the expected peak index
+    is exact — no rounding, no leakage.
+    """
+    fft_size = 1024
+    sample_rate_hz = 1_024_000
+    k = 64  # exact bin offset; f_tone = 64 * 1_024_000 / 1024 = 64_000 Hz
 
-    descriptor = make_descriptor(dc_offset_remove=False)
+    f_tone = k * sample_rate_hz / fft_size
+    t = np.arange(fft_size) / sample_rate_hz
+    tone = 0.5 * np.exp(1j * 2 * np.pi * f_tone * t)
+    iq = np.empty(fft_size * 2, dtype=np.float32)
+    iq[0::2] = tone.real.astype(np.float32)
+    iq[1::2] = tone.imag.astype(np.float32)
+    buffer = iq.astype("<f4").tobytes()
+
+    descriptor = make_descriptor(
+        sample_rate_hz=sample_rate_hz,
+        center_freq_hz=100_000_000,
+        normalize=True,
+        dc_offset_remove=False,
+    )
     result = parse_iq(descriptor, buffer)
 
     assert isinstance(result, IQParseResult)
+    assert result.sample_count == fft_size
+    assert result.samples.dtype == np.float32
+    assert len(result.samples) == fft_size * 2
 
-    complex_samples = result.samples[0::2] + 1j * result.samples[1::2]
-    fft_out = np.fft.fftshift(np.fft.fft(complex_samples))
+    processor = FFTProcessor()
+    processor.configure(
+        RFConfig(
+            center_freq_hz=100_000_000,
+            sample_rate_hz=sample_rate_hz,
+            fft_size=fft_size,
+            window_fn=WindowFunction.HANN,
+        )
+    )
+    frame = processor.process(result.samples, "2026-01-01T00:00:00Z")
 
-    expected_bin = round(f_tone / bin_size_hz) + fft_size // 2
-    peak_bin = int(np.argmax(np.abs(fft_out)))
+    assert len(frame.payload) == fft_size * 4
 
-    assert peak_bin == expected_bin
+    power_db = np.frombuffer(frame.payload, dtype=np.float32)
+    peak_bin = int(np.argmax(power_db))
+    expected_peak_bin = fft_size // 2 + k  # 576
+
+    assert peak_bin == expected_peak_bin
+    assert power_db[peak_bin] > float(power_db.mean())
 
 
 def test_parse_float32_roundtrip_values_preserved() -> None:
-    """Float32 values pass through unchanged; catches byte-order bugs without
-    needing FFT machinery."""
-    values = [0.1, -0.2, 0.3, -0.4, 0.5, -0.5]
-    buffer = struct.pack(f"<{len(values)}f", *values)
+    """Float32 values pass through unchanged; catches byte-order and
+    interleaving bugs without FFT machinery.
+
+    Uses exact equality — no math beyond decode/cast touches these values.
+    """
+    values = np.array(
+        [0.25, -0.75, -0.50, 0.125, 1.00, -1.00, 0.0, 0.5],
+        dtype=np.float32,
+    )
+    buffer = values.astype("<f4").tobytes()
     descriptor = make_descriptor(normalize=False, dc_offset_remove=False)
 
     result = parse_iq(descriptor, buffer)
 
     assert isinstance(result, IQParseResult)
     assert result.samples.dtype == np.float32
-    assert result.sample_count == len(values) // 2
-    np.testing.assert_array_almost_equal(
-        result.samples, np.array(values, dtype=np.float32)
-    )
+    assert result.sample_count == 4
+    np.testing.assert_array_equal(result.samples, values)
 
 
 def test_parse_int16_normalizes_using_divide_by_32768() -> None:

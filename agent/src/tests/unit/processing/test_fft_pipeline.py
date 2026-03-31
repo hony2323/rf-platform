@@ -34,6 +34,27 @@ def make_rf_config(
     )
 
 
+def make_exact_bin_tone_interleaved(
+    fft_size: int,
+    sample_rate_hz: int,
+    bin_offset: int,
+    amplitude: float = 0.5,
+    dtype: type = np.float32,
+) -> npt.NDArray[np.float32]:
+    """Return interleaved IQ for a tone that lands exactly on bin_offset.
+
+    f_tone = bin_offset * sample_rate_hz / fft_size ensures zero spectral
+    leakage so the FFT peak index is exact.
+    """
+    t = np.arange(fft_size) / sample_rate_hz
+    f_tone = bin_offset * sample_rate_hz / fft_size
+    tone = amplitude * np.exp(1j * 2 * np.pi * f_tone * t)
+    iq = np.empty(fft_size * 2, dtype=dtype)
+    iq[0::2] = tone.real.astype(dtype)
+    iq[1::2] = tone.imag.astype(dtype)
+    return iq
+
+
 def make_complex_tone_interleaved(
     sample_rate_hz: int,
     fft_size: int,
@@ -74,16 +95,46 @@ def test_fft_processor_requires_configure_before_process() -> None:
 
 
 def test_fft_processor_output_payload_length_equals_bin_count_times_four() -> None:
-    """Default bin_count == fft_size; payload length = bin_count * 4 bytes."""
-    fft_size = 8
-    processor = FFTProcessor()
-    processor.configure(make_rf_config(fft_size=fft_size))
+    """Wire-payload size contract: one float32 per bin → payload == bin_count * 4 bytes.
 
-    samples = make_complex_tone_interleaved(8, fft_size, 1.0)
+    Uses bin_count < fft_size to prove bin_count is the authoritative size,
+    not fft_size.
+    """
+    fft_size = 1024
+    bin_count = 256
+    processor = FFTProcessor()
+    processor.configure(
+        make_rf_config(fft_size=fft_size, bin_count=bin_count, sample_rate_hz=1_024_000)
+    )
+
+    samples = make_exact_bin_tone_interleaved(fft_size, 1_024_000, bin_offset=32)
     frame = processor.process(samples, _TIMESTAMP)
 
-    assert frame.bin_count == 8
-    assert len(frame.payload) == 8 * 4
+    assert frame.bin_count == 256
+    assert len(frame.payload) == 256 * 4
+
+
+def test_fft_processor_outputs_bins_in_low_to_high_order() -> None:
+    """Low-to-high bin ordering contract: fftshifted peak lands at fft_size//2 + k.
+
+    Uses an exact-bin tone so the peak index is exact — independent of
+    parser behavior.
+    """
+    fft_size = 1024
+    sample_rate_hz = 1_024_000
+    k = 32
+
+    processor = FFTProcessor()
+    processor.configure(
+        make_rf_config(fft_size=fft_size, sample_rate_hz=sample_rate_hz)
+    )
+
+    samples = make_exact_bin_tone_interleaved(fft_size, sample_rate_hz, bin_offset=k)
+    frame = processor.process(samples, _TIMESTAMP)
+    payload = unpack_payload(frame)
+
+    assert len(payload) == fft_size
+    assert int(np.argmax(payload)) == fft_size // 2 + k
 
 
 def test_fft_processor_output_payload_length_uses_explicit_bin_count_not_fft_size() -> (
