@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m pytest -m \"not integration\" -q)"
+      "Bash(python -m pytest -m \"not integration\" -q)",
+      "Bash(python:*)"
     ]
   }
 }

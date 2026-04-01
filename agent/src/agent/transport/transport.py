@@ -70,8 +70,13 @@ class WebSocketTransport:
             raise ConnectionError(f"WebSocket connect failed: {exc}") from exc
 
         self._ws = ws
-        # websockets >= 12 legacy API: response_headers on the protocol object.
-        self._session_id = ws.response_headers.get("X-Session-Id")
+        # websockets >= 13 asyncio API: headers live on ws.response.headers.
+        response_headers = getattr(ws, "response", None)
+        if response_headers is not None:
+            self._session_id = response_headers.headers.get("X-Session-Id")
+        else:
+            # Fallback for scripted fakes that expose response_headers directly.
+            self._session_id = getattr(ws, "response_headers", {}).get("X-Session-Id")
         self._state = TransportState.OPEN
 
     async def send(self, message: str) -> None:

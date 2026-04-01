@@ -1,2 +1,4 @@
 # Large RF recordings — not committed. Store in recordings/ at the repo root.
 /recordings/
+
+scripts/__pycache__/
