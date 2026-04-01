@@ -57,7 +57,9 @@ def _stream_config(session_id: str) -> dict[str, Any]:
     return {**_STREAM_CONFIG_TEMPLATE, "session_id": session_id}
 
 
-def _spectrum_frame(session_id: str, frame_index: int, n_bins: int = 4) -> dict[str, Any]:
+def _spectrum_frame(
+    session_id: str, frame_index: int, n_bins: int = 4
+) -> dict[str, Any]:
     payload = base64.b64encode(struct.pack(f"<{n_bins}f", *[-80.0] * n_bins)).decode()
     return {
         "msg_type": "spectrum_frame",
