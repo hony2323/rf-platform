@@ -13,7 +13,7 @@ def test_metrics_collector_snapshot_reports_queue_depth_fill_and_tx_rate() -> No
     mc.set_throttled(True)
     mc.set_tx_bytes_per_sec(1024)
     mc.set_queue_depth(8)
-    mc.set_queue_fill_pct(0.75)
+    mc.set_queue_fill_pct(75.0)
     mc.inc_local_throttle(3)
     mc.inc_queue_overflow(2)
     mc.inc_server_rejected(1)
@@ -24,7 +24,7 @@ def test_metrics_collector_snapshot_reports_queue_depth_fill_and_tx_rate() -> No
     assert snap.throttled is True
     assert snap.tx_bytes_per_sec == 1024
     assert snap.queue_depth == 8
-    assert snap.queue_fill_pct == 0.75
+    assert snap.queue_fill_pct == 75.0
     assert snap.drops.local_throttle == 3
     assert snap.drops.queue_overflow == 2
     assert snap.drops.server_rejected == 1
@@ -54,7 +54,7 @@ def test_metrics_collector_keeps_non_drop_metrics_available_after_reset() -> Non
     mc.set_throttled(False)
     mc.set_tx_bytes_per_sec(512)
     mc.set_queue_depth(4)
-    mc.set_queue_fill_pct(0.5)
+    mc.set_queue_fill_pct(50.0)
 
     first = mc.snapshot()
     second = mc.snapshot()
@@ -64,7 +64,7 @@ def test_metrics_collector_keeps_non_drop_metrics_available_after_reset() -> Non
         assert snap.throttled is False
         assert snap.tx_bytes_per_sec == 512
         assert snap.queue_depth == 4
-        assert snap.queue_fill_pct == 0.5
+        assert snap.queue_fill_pct == 50.0
 
     assert first.drops.local_throttle == 0
     assert second.drops.local_throttle == 0
@@ -93,11 +93,24 @@ def test_metrics_collector_defaults_to_zero_or_false_values() -> None:
     assert snap.drops.local_throttle == 0
     assert snap.drops.queue_overflow == 0
     assert snap.drops.server_rejected == 0
+    assert snap.drops.parse_errors == 0
 
 
 # ---------------------------------------------------------------------------
 # Validation tests
 # ---------------------------------------------------------------------------
+
+
+def test_metrics_collector_parse_errors_accumulate_and_reset() -> None:
+    mc = MetricsCollector()
+    mc.inc_parse_errors(3)
+    mc.inc_parse_errors()
+
+    first = mc.snapshot()
+    second = mc.snapshot()
+
+    assert first.drops.parse_errors == 4
+    assert second.drops.parse_errors == 0  # reset after first snapshot
 
 
 def test_metrics_collector_rejects_negative_drop_increment() -> None:
@@ -108,6 +121,8 @@ def test_metrics_collector_rejects_negative_drop_increment() -> None:
         mc.inc_queue_overflow(-1)
     with pytest.raises(ValueError):
         mc.inc_server_rejected(-1)
+    with pytest.raises(ValueError):
+        mc.inc_parse_errors(-1)
 
 
 def test_metrics_collector_rejects_negative_queue_depth() -> None:

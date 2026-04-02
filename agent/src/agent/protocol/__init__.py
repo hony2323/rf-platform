@@ -279,8 +279,21 @@ class JsonBase64Codec:
                 "local_throttle": metrics.drops.local_throttle,
                 "queue_overflow": metrics.drops.queue_overflow,
                 "server_rejected": metrics.drops.server_rejected,
+                "parse_errors": metrics.drops.parse_errors,
             },
         }
+        if metrics.pipeline is not None:
+            p = metrics.pipeline
+            msg["pipeline"] = {
+                "parse_iq_p50_ms": p.parse_iq_p50_ms,
+                "parse_iq_p99_ms": p.parse_iq_p99_ms,
+                "fft_p50_ms": p.fft_p50_ms,
+                "fft_p99_ms": p.fft_p99_ms,
+                "encode_send_p50_ms": p.encode_send_p50_ms,
+                "encode_send_p99_ms": p.encode_send_p99_ms,
+                "iq_queue_depth_avg": p.iq_queue_depth_avg,
+                "frame_queue_depth_avg": p.frame_queue_depth_avg,
+            }
         return json.dumps(msg)
 
     def decode(self, raw: str | bytes) -> InboundMessage:

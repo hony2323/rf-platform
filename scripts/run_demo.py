@@ -71,6 +71,7 @@ from agent.session import Session
 from agent.source.sigmf import SigMFSource
 from agent.telemetry import MetricsCollector
 from agent.telemetry.loop import TelemetryLoop, TelemetrySender
+from agent.telemetry.stage_timing import PipelineTiming
 from agent.transport.transport import WebSocketTransport
 from fake_server import ConnectionRecord, FakeAgentServer, FakeServerConfig
 
@@ -267,6 +268,15 @@ def _print_stats(snap: _Snapshot, config: AgentConfig) -> None:
             "queue_fill_pct": st.get("queue_fill_pct"),
             "drops": st.get("drops"),
         }
+        if "pipeline" in st:
+            p = st["pipeline"]
+            doc["pipeline_ms"] = {
+                "parse_iq":  {"p50": p.get("parse_iq_p50_ms"),  "p99": p.get("parse_iq_p99_ms")},
+                "fft":       {"p50": p.get("fft_p50_ms"),        "p99": p.get("fft_p99_ms")},
+                "encode_send": {"p50": p.get("encode_send_p50_ms"), "p99": p.get("encode_send_p99_ms")},
+                "iq_queue_depth_avg":    p.get("iq_queue_depth_avg"),
+                "frame_queue_depth_avg": p.get("frame_queue_depth_avg"),
+            }
 
     print(json.dumps(doc), flush=True)
 
@@ -326,6 +336,7 @@ def _make_factories(
     codec: JsonBase64Codec,
     rate_limit_msps: float | None,
     shared_metrics: MetricsCollector,
+    pipeline_timing: PipelineTiming,
     sigmf_source: SigMFSource | None = None,
 ):
     """Return RunnerFactories that use the pre-built transport and codec."""
@@ -343,12 +354,17 @@ def _make_factories(
         return SimulatorSource(descriptor=cfg.iq, rate_limit_msps=rate_limit_msps)
 
     def make_processor(cfg: AgentConfig) -> IQProcessor:
-        return IQProcessor(descriptor=cfg.iq, rf_config=cfg.rf)
+        return IQProcessor(
+            descriptor=cfg.iq,
+            rf_config=cfg.rf,
+            timings=pipeline_timing,
+            metrics=shared_metrics,
+        )
 
     def make_session(
         cfg: AgentConfig, t: WebSocketTransport, c: JsonBase64Codec
     ) -> Session:
-        return Session(config=cfg, transport=t, codec=c)
+        return Session(config=cfg, transport=t, codec=c, timings=pipeline_timing)
 
     def make_telemetry(
         cfg: AgentConfig,
@@ -447,8 +463,11 @@ async def run(args: argparse.Namespace) -> None:
 
         transport = WebSocketTransport()
         codec = JsonBase64Codec()
-        shared_metrics = MetricsCollector()
-        factories = _make_factories(transport, codec, args.rate_limit_msps, shared_metrics, sigmf_source)
+        pipeline_timing = PipelineTiming()
+        shared_metrics = MetricsCollector(timings=pipeline_timing)
+        factories = _make_factories(
+            transport, codec, args.rate_limit_msps, shared_metrics, pipeline_timing, sigmf_source
+        )
 
         from agent.app.runner import AgentRunner
 

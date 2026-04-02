@@ -173,6 +173,19 @@ class DropCounters:
     local_throttle: int = 0
     queue_overflow: int = 0
     server_rejected: int = 0
+    parse_errors: int = 0
+
+
+@dataclass(frozen=True)
+class PipelineLatencies:
+    parse_iq_p50_ms: float
+    parse_iq_p99_ms: float
+    fft_p50_ms: float
+    fft_p99_ms: float
+    encode_send_p50_ms: float
+    encode_send_p99_ms: float
+    iq_queue_depth_avg: float
+    frame_queue_depth_avg: float
 
 
 @dataclass(frozen=True)
@@ -183,3 +196,4 @@ class AgentMetrics:
     queue_depth: int
     queue_fill_pct: float
     drops: DropCounters = field(default_factory=DropCounters)
+    pipeline: PipelineLatencies | None = None

@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import time
 from contextlib import suppress
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from agent.telemetry.stage_timing import PipelineTiming
 
 from agent.config import AgentConfig
 from agent.domain import (
@@ -96,10 +100,12 @@ class Session:
         config: AgentConfig,
         transport: Transport,
         codec: ProtocolCodec,
+        timings: PipelineTiming | None = None,
     ) -> None:
         self._config = config
         self._transport = transport
         self._codec = codec
+        self._timings = timings
 
         self._state = ConnectionState.DISCONNECTED
         self._session_id: str | None = None
@@ -250,7 +256,10 @@ class Session:
         assert self._session_id is not None
         assert self._config_version is not None
         while True:
+            if self._timings is not None:
+                self._timings.record_frame_queue_depth(frame_queue.qsize())
             frame = await frame_queue.get()
+            t_send = time.perf_counter()
             encoded = self._codec.encode_spectrum_frame(
                 node_id=cfg.identity.node_id,
                 session_id=self._session_id,
@@ -263,6 +272,10 @@ class Session:
                 await self._transport.send(encoded)
             except Exception as exc:
                 raise SessionError(f"Transport send error: {exc}") from exc
+            if self._timings is not None:
+                self._timings.record_encode_send_ms(
+                    (time.perf_counter() - t_send) * 1000.0
+                )
             self._frame_index += 1
 
     async def _recv_loop(self) -> None:

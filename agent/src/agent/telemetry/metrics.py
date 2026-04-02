@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from agent.domain import AgentMetrics, DropCounters
+
+if TYPE_CHECKING:
+    from agent.telemetry.stage_timing import PipelineTiming
 
 
 class MetricsCollector:
@@ -12,7 +17,7 @@ class MetricsCollector:
     snapshot() is called, at which point only drops are reset to zero.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, timings: PipelineTiming | None = None) -> None:
         self._cpu_usage_pct: float = 0.0
         self._throttled: bool = False
         self._tx_bytes_per_sec: int = 0
@@ -22,6 +27,9 @@ class MetricsCollector:
         self._local_throttle: int = 0
         self._queue_overflow: int = 0
         self._server_rejected: int = 0
+        self._parse_errors: int = 0
+
+        self._timings = timings
 
     # ------------------------------------------------------------------
     # Gauge setters
@@ -67,6 +75,11 @@ class MetricsCollector:
             raise ValueError(f"count must be >= 0, got {count!r}")
         self._server_rejected += count
 
+    def inc_parse_errors(self, count: int = 1) -> None:
+        if count < 0:
+            raise ValueError(f"count must be >= 0, got {count!r}")
+        self._parse_errors += count
+
     # ------------------------------------------------------------------
     # Snapshot
     # ------------------------------------------------------------------
@@ -86,9 +99,12 @@ class MetricsCollector:
                 local_throttle=self._local_throttle,
                 queue_overflow=self._queue_overflow,
                 server_rejected=self._server_rejected,
+                parse_errors=self._parse_errors,
             ),
+            pipeline=self._timings.snapshot() if self._timings is not None else None,
         )
         self._local_throttle = 0
         self._queue_overflow = 0
         self._server_rejected = 0
+        self._parse_errors = 0
         return metrics

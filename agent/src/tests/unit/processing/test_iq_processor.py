@@ -476,6 +476,113 @@ async def test_run_uses_chunk_dequeue_time_as_timestamp_input_to_push(
 
 
 # ---------------------------------------------------------------------------
+# Batch 3b — PipelineTiming injection
+# ---------------------------------------------------------------------------
+
+
+def test_processor_records_parse_iq_timing_when_timings_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """parse_iq timing is recorded for each push that reaches parse_iq."""
+    import agent.processing.processor as mod
+    from agent.telemetry.stage_timing import PipelineTiming
+
+    def fake_parse(descriptor: IQDescriptor, buffer: bytes) -> IQParseResult:
+        return make_parse_result(len(buffer) // descriptor.bytes_per_sample)
+
+    monkeypatch.setattr(mod, "parse_iq", fake_parse)
+
+    timings = PipelineTiming()
+    proc = IQProcessor(make_descriptor(), make_rf_config(fft_size=4), timings=timings)
+
+    # Two pushes that reach parse_iq
+    proc.push(encode_float32_iq([0.0] * (2 * 2)), _TIMESTAMP)
+    proc.push(encode_float32_iq([0.0] * (2 * 2)), _TIMESTAMP)
+
+    snap = timings.snapshot()
+    assert snap is not None
+    assert snap.parse_iq_p50_ms >= 0.0
+
+
+def test_processor_records_fft_timing_when_timings_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FFT timing is recorded once per frame emitted."""
+    import agent.processing.processor as mod
+    from agent.processing import fft_pipeline
+    from agent.telemetry.stage_timing import PipelineTiming
+
+    fft_size = 4
+
+    def fake_parse(descriptor: IQDescriptor, buffer: bytes) -> IQParseResult:
+        return make_parse_result(len(buffer) // descriptor.bytes_per_sample)
+
+    def fake_fft_process(self: object, samples: object, ts: str) -> SpectrumFrame:
+        return _fake_frame(fft_size, ts)
+
+    monkeypatch.setattr(mod, "parse_iq", fake_parse)
+    monkeypatch.setattr(fft_pipeline.FFTProcessor, "process", fake_fft_process)
+
+    timings = PipelineTiming()
+    proc = IQProcessor(make_descriptor(), make_rf_config(fft_size=fft_size), timings=timings)
+
+    # Push exactly one FFT window — one frame emitted, one FFT timing recorded
+    frames = proc.push(encode_float32_iq([0.0] * (fft_size * 2)), _TIMESTAMP)
+    assert len(frames) == 1
+
+    snap = timings.snapshot()
+    assert snap is not None
+    assert snap.fft_p50_ms >= 0.0
+
+
+def test_processor_increments_metrics_parse_errors_when_metrics_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """parse_error_count and MetricsCollector.parse_errors stay in sync."""
+    import agent.processing.processor as mod
+    from agent.telemetry.metrics import MetricsCollector
+
+    monkeypatch.setattr(
+        mod,
+        "parse_iq",
+        lambda *_: IQParseError(code=IQParseErrorCode.UNSUPPORTED_FORMAT, message="x"),
+    )
+
+    mc = MetricsCollector()
+    proc = IQProcessor(make_descriptor(), make_rf_config(fft_size=4), metrics=mc)
+
+    proc.push(encode_float32_iq([0.0] * (4 * 2)), _TIMESTAMP)
+    proc.push(encode_float32_iq([0.0] * (4 * 2)), _TIMESTAMP)
+
+    assert proc.parse_error_count == 2
+    snap = mc.snapshot()
+    assert snap.drops.parse_errors == 2
+
+
+def test_processor_works_without_timings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IQProcessor with timings=None behaves identically to the default."""
+    import agent.processing.processor as mod
+    from agent.processing import fft_pipeline
+
+    fft_size = 4
+
+    def fake_parse(descriptor: IQDescriptor, buffer: bytes) -> IQParseResult:
+        return make_parse_result(len(buffer) // descriptor.bytes_per_sample)
+
+    def fake_fft_process(self: object, samples: object, ts: str) -> SpectrumFrame:
+        return _fake_frame(fft_size, ts)
+
+    monkeypatch.setattr(mod, "parse_iq", fake_parse)
+    monkeypatch.setattr(fft_pipeline.FFTProcessor, "process", fake_fft_process)
+
+    proc = IQProcessor(make_descriptor(), make_rf_config(fft_size=fft_size), timings=None)
+    frames = proc.push(encode_float32_iq([0.0] * (fft_size * 2)), _TIMESTAMP)
+    assert len(frames) == 1
+
+
+# ---------------------------------------------------------------------------
 # Batch 4 — real-wiring smoke test (no mocks)
 # ---------------------------------------------------------------------------
 

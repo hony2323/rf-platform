@@ -212,6 +212,7 @@ def test_encode_agent_status_emits_expected_fields(codec: JsonBase64Codec) -> No
     assert msg["drops"]["local_throttle"] == 0
     assert msg["drops"]["queue_overflow"] == 1
     assert msg["drops"]["server_rejected"] == 2
+    assert msg["drops"]["parse_errors"] == 0
 
 
 # ---------------------------------------------------------------------------

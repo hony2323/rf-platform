@@ -10,7 +10,9 @@ asyncio-compatible stage that:
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
@@ -18,6 +20,10 @@ import numpy.typing as npt
 from agent.domain import IQDescriptor, RFConfig, SpectrumFrame
 from agent.processing.fft_pipeline import FFTProcessor
 from agent.processing.parse_iq import IQParseError, parse_iq
+
+if TYPE_CHECKING:
+    from agent.telemetry.metrics import MetricsCollector
+    from agent.telemetry.stage_timing import PipelineTiming
 
 
 class IQProcessor:
@@ -29,7 +35,13 @@ class IQProcessor:
     Not thread-safe. Designed for single-task asyncio use.
     """
 
-    def __init__(self, descriptor: IQDescriptor, rf_config: RFConfig) -> None:
+    def __init__(
+        self,
+        descriptor: IQDescriptor,
+        rf_config: RFConfig,
+        timings: PipelineTiming | None = None,
+        metrics: MetricsCollector | None = None,
+    ) -> None:
         self._descriptor = descriptor
         self._fft = FFTProcessor()
         self._fft.configure(rf_config)
@@ -38,6 +50,8 @@ class IQProcessor:
         self._sample_count = 0
         self._remainder = b""
         self.parse_error_count: int = 0  # lifetime counter; never resets
+        self._timings = timings
+        self._metrics = metrics
 
     def configure(self, rf_config: RFConfig) -> None:
         """Replace the active RF/FFT config.
@@ -72,11 +86,17 @@ class IQProcessor:
         if not data:
             return []
 
+        t_parse = time.perf_counter()
         result = parse_iq(self._descriptor, data)
+        if self._timings is not None:
+            self._timings.record_parse_iq_ms((time.perf_counter() - t_parse) * 1000.0)
+
         if isinstance(result, IQParseError):
             # data is sample-aligned so this should not happen; increment counter
             # to make silent drops observable (e.g. for telemetry / debugging).
             self.parse_error_count += 1
+            if self._metrics is not None:
+                self._metrics.inc_parse_errors()
             return []
 
         self._sample_buf.append(result.samples)
@@ -89,7 +109,10 @@ class IQProcessor:
             leftover = all_samples[self._fft_size * 2 :]
             self._sample_buf = [leftover] if len(leftover) > 0 else []
             self._sample_count -= self._fft_size
+            t_fft = time.perf_counter()
             frames.append(self._fft.process(frame_samples, timestamp_utc))
+            if self._timings is not None:
+                self._timings.record_fft_ms((time.perf_counter() - t_fft) * 1000.0)
 
         return frames
 
@@ -105,6 +128,8 @@ class IQProcessor:
         timestamping at MVP).
         """
         while True:
+            if self._timings is not None:
+                self._timings.record_iq_queue_depth(iq_queue.qsize())
             chunk = await iq_queue.get()
             timestamp_utc = datetime.now(timezone.utc).isoformat()
             for frame in self.push(chunk, timestamp_utc):
