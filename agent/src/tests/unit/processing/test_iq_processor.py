@@ -524,7 +524,9 @@ def test_processor_records_fft_timing_when_timings_injected(
     monkeypatch.setattr(fft_pipeline.FFTProcessor, "process", fake_fft_process)
 
     timings = PipelineTiming()
-    proc = IQProcessor(make_descriptor(), make_rf_config(fft_size=fft_size), timings=timings)
+    proc = IQProcessor(
+        make_descriptor(), make_rf_config(fft_size=fft_size), timings=timings
+    )
 
     # Push exactly one FFT window — one frame emitted, one FFT timing recorded
     frames = proc.push(encode_float32_iq([0.0] * (fft_size * 2)), _TIMESTAMP)
@@ -577,7 +579,9 @@ def test_processor_works_without_timings(
     monkeypatch.setattr(mod, "parse_iq", fake_parse)
     monkeypatch.setattr(fft_pipeline.FFTProcessor, "process", fake_fft_process)
 
-    proc = IQProcessor(make_descriptor(), make_rf_config(fft_size=fft_size), timings=None)
+    proc = IQProcessor(
+        make_descriptor(), make_rf_config(fft_size=fft_size), timings=None
+    )
     frames = proc.push(encode_float32_iq([0.0] * (fft_size * 2)), _TIMESTAMP)
     assert len(frames) == 1
 

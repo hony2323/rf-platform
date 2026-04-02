@@ -61,10 +61,15 @@ class PipelineTiming:
 
     def snapshot(self) -> PipelineLatencies | None:
         """Return a snapshot of current metrics, or None if no stage has data yet."""
-        if not any([
-            self._parse_iq_ms, self._fft_ms, self._encode_send_ms,
-            self._iq_queue_depth, self._frame_queue_depth,
-        ]):
+        if not any(
+            [
+                self._parse_iq_ms,
+                self._fft_ms,
+                self._encode_send_ms,
+                self._iq_queue_depth,
+                self._frame_queue_depth,
+            ]
+        ):
             return None
         return PipelineLatencies(
             parse_iq_p50_ms=(
