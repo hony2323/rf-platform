@@ -65,7 +65,7 @@ def _write_float32_wav(path: Path, sample_rate: int, n_samples: int) -> None:
     byte_rate = sample_rate * block_align
     fmt = struct.pack(
         "<HHIIHH",
-        3,              # AudioFormat: IEEE float
+        3,  # AudioFormat: IEEE float
         num_channels,
         sample_rate,
         byte_rate,
@@ -88,7 +88,7 @@ def _write_float64_wav(path: Path, sample_rate: int, n_samples: int) -> None:
     byte_rate = sample_rate * block_align
     fmt = struct.pack(
         "<HHIIHH",
-        3,              # AudioFormat: IEEE float
+        3,  # AudioFormat: IEEE float
         num_channels,
         sample_rate,
         byte_rate,
@@ -318,9 +318,7 @@ async def test_wav_source_run_block_size_respected_approximately(
     pcm16_wav: Path,
 ) -> None:
     block_size = 512
-    source = WavSource(
-        pcm16_wav, center_freq_hz=_CENTER_FREQ_HZ, block_size=block_size
-    )
+    source = WavSource(pcm16_wav, center_freq_hz=_CENTER_FREQ_HZ, block_size=block_size)
     await source.start()
     blocks = await _collect_blocks(source, n=3)
     for block in blocks:
@@ -367,9 +365,7 @@ async def test_wav_source_run_loops(tmp_path: Path) -> None:
         wf.setframerate(_SAMPLE_RATE)
         wf.writeframes(struct.pack("<8h", *([100] * 8)))  # 4 complex samples
 
-    source = WavSource(
-        p, center_freq_hz=_CENTER_FREQ_HZ, block_size=16, loops=2
-    )
+    source = WavSource(p, center_freq_hz=_CENTER_FREQ_HZ, block_size=16, loops=2)
     await source.start()
 
     q: asyncio.Queue[bytes] = asyncio.Queue()

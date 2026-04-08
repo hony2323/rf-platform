@@ -86,9 +86,7 @@ def _parse_wav_header(data: bytes) -> tuple[SampleFormat, int, int]:
             audio_format, num_channels, sample_rate = struct.unpack_from(
                 "<HHI", data, chunk_data_start
             )
-            (bits_per_sample,) = struct.unpack_from(
-                "<H", data, chunk_data_start + 14
-            )
+            (bits_per_sample,) = struct.unpack_from("<H", data, chunk_data_start + 14)
 
         elif chunk_id == b"data":
             data_offset = chunk_data_start
@@ -185,8 +183,7 @@ class WavSource(IQSource):
         block_size = (self._block_size // bps) * bps
         if block_size == 0:
             raise ValueError(
-                f"block_size {self._block_size} is smaller than "
-                f"bytes_per_sample {bps}"
+                f"block_size {self._block_size} is smaller than bytes_per_sample {bps}"
             )
 
         iteration = 0
