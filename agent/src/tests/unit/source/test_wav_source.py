@@ -20,7 +20,12 @@ import pytest
 from agent.domain import Endianness, Layout, SampleFormat
 from agent.processing.parse_iq import IQParseResult, parse_iq
 from agent.source.wav import UnsupportedWavFormatError, WavSource
-from tests.conftest import WAV_MWLAMP_CENTER_FREQ_HZ, WAV_MWLAMP_SAMPLE_RATE_HZ
+from tests.conftest import (
+    WAV_AUDIO_CENTER_FREQ_HZ,
+    WAV_AUDIO_SAMPLE_RATE_HZ,
+    WAV_MWLAMP_CENTER_FREQ_HZ,
+    WAV_MWLAMP_SAMPLE_RATE_HZ,
+)
 
 # ---------------------------------------------------------------------------
 # WAV fixture helpers
@@ -482,6 +487,108 @@ async def test_mwlamp_run_parsed_samples_normalized_to_unit_range(
     source = WavSource(
         wav_mwlamp_path,
         center_freq_hz=WAV_MWLAMP_CENTER_FREQ_HZ,
+        block_size=4096,
+    )
+    await source.start()
+    [block] = await _collect_blocks(source, n=1)
+    result = parse_iq(source.descriptor, block)
+    assert isinstance(result, IQParseResult)
+    assert np.all(result.samples >= -1.0)
+    assert np.all(result.samples <= 1.0)
+
+
+# ---------------------------------------------------------------------------
+# Real-fixture tests — audio WAV (PCM int16, 16.035 MHz, 96 ksps)
+# ---------------------------------------------------------------------------
+
+
+async def test_audio_descriptor_sample_format_is_int16(
+    wav_audio_source: WavSource,
+) -> None:
+    assert wav_audio_source.descriptor.sample_format == SampleFormat.INT16
+
+
+async def test_audio_descriptor_endianness_is_little(
+    wav_audio_source: WavSource,
+) -> None:
+    assert wav_audio_source.descriptor.endianness == Endianness.LITTLE
+
+
+async def test_audio_descriptor_layout_is_interleaved(
+    wav_audio_source: WavSource,
+) -> None:
+    assert wav_audio_source.descriptor.layout == Layout.INTERLEAVED
+
+
+async def test_audio_descriptor_sample_rate(wav_audio_source: WavSource) -> None:
+    assert wav_audio_source.descriptor.sample_rate_hz == WAV_AUDIO_SAMPLE_RATE_HZ
+
+
+async def test_audio_descriptor_center_freq(wav_audio_source: WavSource) -> None:
+    assert wav_audio_source.descriptor.center_freq_hz == WAV_AUDIO_CENTER_FREQ_HZ
+
+
+async def test_audio_run_produces_bytes(wav_audio_path: Path) -> None:
+    source = WavSource(
+        wav_audio_path,
+        center_freq_hz=WAV_AUDIO_CENTER_FREQ_HZ,
+        block_size=4096,
+    )
+    await source.start()
+    blocks = await _collect_blocks(source, n=3)
+    assert all(isinstance(b, bytes) for b in blocks)
+    assert all(len(b) > 0 for b in blocks)
+
+
+async def test_audio_run_blocks_aligned_to_bytes_per_sample(
+    wav_audio_path: Path,
+) -> None:
+    source = WavSource(
+        wav_audio_path,
+        center_freq_hz=WAV_AUDIO_CENTER_FREQ_HZ,
+        block_size=4096,
+    )
+    await source.start()
+    bps = source.descriptor.bytes_per_sample
+    blocks = await _collect_blocks(source, n=5)
+    for block in blocks:
+        assert len(block) % bps == 0, (
+            f"block length {len(block)} not a multiple of bytes_per_sample {bps}"
+        )
+
+
+async def test_audio_run_blocks_parse_without_error(wav_audio_path: Path) -> None:
+    source = WavSource(
+        wav_audio_path,
+        center_freq_hz=WAV_AUDIO_CENTER_FREQ_HZ,
+        block_size=4096,
+    )
+    await source.start()
+    blocks = await _collect_blocks(source, n=5)
+    for block in blocks:
+        result = parse_iq(source.descriptor, block)
+        assert isinstance(result, IQParseResult), f"parse_iq failed: {result}"
+
+
+async def test_audio_run_parsed_samples_are_float32(wav_audio_path: Path) -> None:
+    source = WavSource(
+        wav_audio_path,
+        center_freq_hz=WAV_AUDIO_CENTER_FREQ_HZ,
+        block_size=4096,
+    )
+    await source.start()
+    [block] = await _collect_blocks(source, n=1)
+    result = parse_iq(source.descriptor, block)
+    assert isinstance(result, IQParseResult)
+    assert result.samples.dtype == np.float32
+
+
+async def test_audio_run_parsed_samples_normalized_to_unit_range(
+    wav_audio_path: Path,
+) -> None:
+    source = WavSource(
+        wav_audio_path,
+        center_freq_hz=WAV_AUDIO_CENTER_FREQ_HZ,
         block_size=4096,
     )
     await source.start()

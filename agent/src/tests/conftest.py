@@ -14,10 +14,15 @@ from agent.source.wav import WavSource
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _LTE_DIR = _FIXTURES_DIR / "LTE_uplink_847MHz_2022-01-30_30720ksps_fix"
 _MWLAMP_DIR = _FIXTURES_DIR / "MWlamp_5829250000Hz_1250ksps_fix"
+_AUDIO_DIR = _FIXTURES_DIR / "audio_16035000Hz_96ksps_fix"
 
 # Known constants for the MWlamp WAV fixture (decoded from filename + header).
 WAV_MWLAMP_CENTER_FREQ_HZ = 5_829_250_000
 WAV_MWLAMP_SAMPLE_RATE_HZ = 1_250_000
+
+# Known constants for the audio WAV fixture (decoded from filename + header).
+WAV_AUDIO_CENTER_FREQ_HZ = 16_035_000
+WAV_AUDIO_SAMPLE_RATE_HZ = 96_000
 
 
 @pytest.fixture
@@ -82,5 +87,23 @@ def wav_mwlamp_path() -> Path:
 async def wav_mwlamp_source(wav_mwlamp_path: Path) -> WavSource:
     """Started WavSource for the MWlamp fixture, ready for descriptor access."""
     source = WavSource(wav_mwlamp_path, center_freq_hz=WAV_MWLAMP_CENTER_FREQ_HZ)
+    await source.start()
+    return source
+
+
+@pytest.fixture
+def wav_audio_path() -> Path:
+    """Path to the audio WAV fixture (PCM int16, 16.035 MHz, 96 ksps).
+
+    16-bit stereo PCM, 100 k complex samples. Trimmed for CI.
+    Center frequency decoded from the filename; not stored in the WAV header.
+    """
+    return _AUDIO_DIR / "audio_16035000Hz_96k_small.wav"
+
+
+@pytest.fixture
+async def wav_audio_source(wav_audio_path: Path) -> WavSource:
+    """Started WavSource for the audio fixture, ready for descriptor access."""
+    source = WavSource(wav_audio_path, center_freq_hz=WAV_AUDIO_CENTER_FREQ_HZ)
     await source.start()
     return source

@@ -14,14 +14,18 @@ Usage (from repo root):
     # Real SigMF recording (loops automatically)
     python ../scripts/run_demo.py --sigmf ../recordings/LTE_uplink.../....sigmf-meta --fft-size 4096
 
+    # WAV recording (loops automatically; --freq required)
+    python ../scripts/run_demo.py --wav ../recordings/UMTS.wav --freq 882400000 --fft-size 1024
+
 Options:
     --fft-size          FFT size (default 1024)
-    --sample-rate       IQ sample rate Hz — ignored when --sigmf is set
-    --freq              Center frequency Hz — ignored when --sigmf is set
+    --sample-rate       IQ sample rate Hz — ignored when --sigmf or --wav is set
+    --freq              Center frequency Hz — ignored when --sigmf is set; required for --wav
     --stats-hz          Stats print rate in Hz (default 1.0)
     --duration          Run for N seconds then stop (default: run forever)
     --rate-limit-msps   Throttle synthetic source to N MSPS (default: unlimited)
     --sigmf             Path to a .sigmf-meta file — uses real recording as source
+    --wav               Path to a .wav IQ file — uses real recording as source (--freq required)
 """
 
 from __future__ import annotations
@@ -69,6 +73,7 @@ from agent.processing.processor import IQProcessor
 from agent.protocol import JsonBase64Codec
 from agent.session import Session
 from agent.source.sigmf import SigMFSource
+from agent.source.wav import WavSource
 from agent.telemetry import MetricsCollector
 from agent.telemetry.loop import TelemetryLoop, TelemetrySender
 from agent.telemetry.stage_timing import PipelineTiming
@@ -338,6 +343,7 @@ def _make_factories(
     shared_metrics: MetricsCollector,
     pipeline_timing: PipelineTiming,
     sigmf_source: SigMFSource | None = None,
+    wav_source: WavSource | None = None,
 ):
     """Return RunnerFactories that use the pre-built transport and codec."""
     from agent.app.runner import RunnerFactories
@@ -348,9 +354,11 @@ def _make_factories(
     def make_codec(cfg: AgentConfig) -> JsonBase64Codec:
         return codec
 
-    def make_source(cfg: AgentConfig) -> SigMFSource | SimulatorSource:
+    def make_source(cfg: AgentConfig) -> SigMFSource | WavSource | SimulatorSource:
         if sigmf_source is not None:
             return sigmf_source
+        if wav_source is not None:
+            return wav_source
         return SimulatorSource(descriptor=cfg.iq, rate_limit_msps=rate_limit_msps)
 
     def make_processor(cfg: AgentConfig) -> IQProcessor:
@@ -403,6 +411,7 @@ def _make_factories(
 async def run(args: argparse.Namespace) -> None:
     # --- Source selection ---------------------------------------------------
     sigmf_source: SigMFSource | None = None
+    wav_source: WavSource | None = None
 
     if args.sigmf:
         meta_path = Path(args.sigmf).resolve()
@@ -419,16 +428,35 @@ async def run(args: argparse.Namespace) -> None:
             fft_size=args.fft_size,
         )
         source_label = meta_path.name
+    elif args.wav:
+        wav_path = Path(args.wav).resolve()
+        if not wav_path.exists():
+            print(json.dumps({"event": "error", "msg": f"not found: {wav_path}"}))
+            return
+        if args.freq is None:
+            print(json.dumps({"event": "error", "msg": "--freq is required with --wav"}))
+            return
+        # loops=None → replay the file indefinitely
+        wav_source = WavSource(wav_path, center_freq_hz=args.freq, loops=None)
+        await wav_source.start()            # parse WAV header → builds descriptor
+        iq = wav_source.descriptor
+        rf = RFConfig(
+            center_freq_hz=iq.center_freq_hz,
+            sample_rate_hz=iq.sample_rate_hz,
+            fft_size=args.fft_size,
+        )
+        source_label = wav_path.name
     else:
+        sim_freq = args.freq if args.freq is not None else 433_920_000
         iq = IQDescriptor(
             sample_format=SampleFormat.FLOAT32,
             endianness=Endianness.LITTLE,
             layout=Layout.INTERLEAVED,
             sample_rate_hz=args.sample_rate,
-            center_freq_hz=args.freq,
+            center_freq_hz=sim_freq,
         )
         rf = RFConfig(
-            center_freq_hz=args.freq,
+            center_freq_hz=sim_freq,
             sample_rate_hz=args.sample_rate,
             fft_size=args.fft_size,
         )
@@ -466,7 +494,8 @@ async def run(args: argparse.Namespace) -> None:
         pipeline_timing = PipelineTiming()
         shared_metrics = MetricsCollector(timings=pipeline_timing)
         factories = _make_factories(
-            transport, codec, args.rate_limit_msps, shared_metrics, pipeline_timing, sigmf_source
+            transport, codec, args.rate_limit_msps, shared_metrics, pipeline_timing,
+            sigmf_source, wav_source,
         )
 
         from agent.app.runner import AgentRunner
@@ -524,7 +553,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="RF agent live demo")
     parser.add_argument("--fft-size", type=int, default=1024)
     parser.add_argument("--sample-rate", type=int, default=2_400_000)
-    parser.add_argument("--freq", type=int, default=433_920_000)
+    parser.add_argument("--freq", type=int, default=None, help="Center frequency Hz (required for --wav; defaults to 433920000 for simulator)")
     parser.add_argument("--stats-hz", type=float, default=1.0)
     parser.add_argument(
         "--duration",
@@ -550,6 +579,16 @@ def main() -> None:
         help=(
             "Path to a .sigmf-meta file. Uses the real recording as source "
             "(loops indefinitely). Overrides --sample-rate and --freq."
+        ),
+    )
+    parser.add_argument(
+        "--wav",
+        default=None,
+        metavar="WAV_PATH",
+        help=(
+            "Path to a .wav IQ file (stereo, I=left, Q=right). Uses the real "
+            "recording as source (loops indefinitely). Requires --freq. "
+            "Overrides --sample-rate."
         ),
     )
     args = parser.parse_args()
