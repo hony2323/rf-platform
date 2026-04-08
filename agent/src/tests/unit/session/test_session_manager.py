@@ -891,3 +891,144 @@ async def test_config_update_resets_frame_index_to_zero() -> None:
         await task
     except asyncio.CancelledError:
         pass
+
+
+# ---------------------------------------------------------------------------
+# 10. binary_ws encoding
+# ---------------------------------------------------------------------------
+
+
+def make_session_binary_ws(
+    transport: FakeTransport | None = None,
+    codec: FakeCodec | None = None,
+) -> Session:
+    """Like make_session() but configured to request binary_ws encoding."""
+    if transport is None:
+        transport = FakeTransport()
+    if codec is None:
+        codec = FakeCodec()
+    config = AgentConfig(
+        identity=AgentIdentity(node_id="node_test"),
+        server=ServerConfig(url="wss://test", token="test-token"),
+        rf=RFConfig(
+            center_freq_hz=100_000_000,
+            sample_rate_hz=1_000_000,
+            fft_size=4,
+        ),
+        iq=IQDescriptor(
+            sample_format=SampleFormat.FLOAT32,
+            endianness=Endianness.LITTLE,
+            layout=Layout.INTERLEAVED,
+            sample_rate_hz=1_000_000,
+            center_freq_hz=100_000_000,
+        ),
+        wire_encoding=WireEncoding.BINARY_WS,
+    )
+    return Session(config=config, transport=transport, codec=codec)
+
+
+async def test_binary_ws_spectrum_frames_sent_as_bytes() -> None:
+    """In binary_ws mode, spectrum frames must be bytes, not str or dict."""
+    transport = FakeTransport()
+    session = make_session_binary_ws(transport)
+    frame_queue: asyncio.Queue = asyncio.Queue()
+
+    transport.queue_inbound(make_connect_ack(wire_encoding="binary_ws"))
+    transport.queue_inbound(make_stream_config_ack())
+    await frame_queue.put(make_frame(bin_count=4))
+
+    task = asyncio.create_task(session.run(frame_queue))
+    await asyncio.sleep(0.05)
+
+    binary_msgs = [m for m in transport.sent if isinstance(m, bytes)]
+    assert len(binary_msgs) >= 1
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def test_binary_ws_control_messages_are_not_bytes() -> None:
+    """Control messages (connect, stream_config) stay non-binary in binary_ws mode."""
+    transport = FakeTransport()
+    session = make_session_binary_ws(transport)
+    frame_queue: asyncio.Queue = asyncio.Queue()
+
+    transport.queue_inbound(make_connect_ack(wire_encoding="binary_ws"))
+
+    task = asyncio.create_task(session.run(frame_queue))
+    await asyncio.sleep(0.02)
+
+    # FakeCodec returns dicts for control messages — none should be bytes
+    assert not any(isinstance(m, bytes) for m in transport.sent)
+    connect_msgs = [
+        m
+        for m in transport.sent
+        if isinstance(m, dict) and m.get("msg_type") == "connect"
+    ]
+    assert len(connect_msgs) == 1
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def test_session_fails_when_ack_encoding_mismatches_config() -> None:
+    """Config requests json_base64 but server acks binary_ws → SessionError."""
+    transport = FakeTransport()
+    session = make_session(transport)  # default: json_base64
+    frame_queue: asyncio.Queue = asyncio.Queue()
+
+    transport.queue_inbound(make_connect_ack(wire_encoding="binary_ws"))
+
+    with pytest.raises(SessionError):
+        await asyncio.wait_for(session.run(frame_queue), timeout=1.0)
+
+    assert session.state == ConnectionState.DISCONNECTED
+
+
+async def test_session_fails_when_binary_ws_requested_but_json_acked() -> None:
+    """Config requests binary_ws but server acks json_base64 → SessionError."""
+    transport = FakeTransport()
+    session = make_session_binary_ws(transport)
+    frame_queue: asyncio.Queue = asyncio.Queue()
+
+    transport.queue_inbound(make_connect_ack(wire_encoding="json_base64"))
+
+    with pytest.raises(SessionError):
+        await asyncio.wait_for(session.run(frame_queue), timeout=1.0)
+
+    assert session.state == ConnectionState.DISCONNECTED
+
+
+async def test_json_base64_path_sends_non_bytes_frames() -> None:
+    """Existing json_base64 path: spectrum frames must not be bytes."""
+    transport = FakeTransport()
+    session = make_session(transport)
+    frame_queue: asyncio.Queue = asyncio.Queue()
+
+    transport.queue_inbound(make_connect_ack(wire_encoding="json_base64"))
+    transport.queue_inbound(make_stream_config_ack())
+    await frame_queue.put(make_frame(bin_count=4))
+
+    task = asyncio.create_task(session.run(frame_queue))
+    await asyncio.sleep(0.05)
+
+    # FakeCodec.encode_spectrum_frame returns a dict, never bytes
+    frame_msgs = [
+        m
+        for m in transport.sent
+        if isinstance(m, dict) and m.get("msg_type") == "spectrum_frame"
+    ]
+    assert len(frame_msgs) >= 1
+    assert not any(isinstance(m, bytes) for m in transport.sent)
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass

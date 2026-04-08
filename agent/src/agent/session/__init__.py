@@ -32,6 +32,7 @@ from agent.protocol import (
     ProtocolCodec,
     ServerError,
     StreamConfigAck,
+    encode_spectrum_frame_binary_ws,
 )
 from agent.transport import Transport
 
@@ -112,6 +113,7 @@ class Session:
         self._config_version: int | None = None
         self._frame_index: int = 0
         self._config_ack_event: asyncio.Event | None = None
+        self._wire_encoding: WireEncoding = WireEncoding.JSON_BASE64
 
     # ------------------------------------------------------------------
     # Public state (read-only)
@@ -156,6 +158,7 @@ class Session:
             self._config_version = None
             self._frame_index = 0
             self._config_ack_event = None
+            self._wire_encoding = WireEncoding.JSON_BASE64
             with suppress(Exception):
                 await self._transport.close()
 
@@ -175,7 +178,7 @@ class Session:
                 node_id=cfg.identity.node_id,
                 protocol_version=_PROTOCOL_VERSION,
                 agent_version=cfg.identity.agent_version,
-                requested_encoding=WireEncoding.JSON_BASE64,
+                requested_encoding=cfg.wire_encoding,
             )
         )
 
@@ -194,10 +197,12 @@ class Session:
             )
         if msg.status != "ok":
             raise SessionError(f"connect_ack status not ok: {msg.status!r}")
-        if msg.wire_encoding != WireEncoding.JSON_BASE64:
+        if msg.wire_encoding != cfg.wire_encoding:
             raise SessionError(
-                f"connect_ack wire_encoding mismatch: got {msg.wire_encoding!r}"
+                f"connect_ack wire_encoding mismatch: "
+                f"expected {cfg.wire_encoding!r}, got {msg.wire_encoding!r}"
             )
+        self._wire_encoding = msg.wire_encoding
         self._state = ConnectionState.CONNECTED
 
         # Send stream_config
@@ -260,16 +265,26 @@ class Session:
                 self._timings.record_frame_queue_depth(frame_queue.qsize())
             frame = await frame_queue.get()
             t_send = time.perf_counter()
-            encoded = self._codec.encode_spectrum_frame(
-                node_id=cfg.identity.node_id,
-                session_id=self._session_id,
-                stream_id=cfg.stream_id,
-                config_version=self._config_version,
-                frame_index=self._frame_index,
-                frame=frame,
-            )
+            if self._wire_encoding == WireEncoding.BINARY_WS:
+                wire: str | bytes = encode_spectrum_frame_binary_ws(
+                    node_id=cfg.identity.node_id,
+                    session_id=self._session_id,
+                    stream_id=cfg.stream_id,
+                    config_version=self._config_version,
+                    frame_index=self._frame_index,
+                    frame=frame,
+                )
+            else:
+                wire = self._codec.encode_spectrum_frame(
+                    node_id=cfg.identity.node_id,
+                    session_id=self._session_id,
+                    stream_id=cfg.stream_id,
+                    config_version=self._config_version,
+                    frame_index=self._frame_index,
+                    frame=frame,
+                )
             try:
-                await self._transport.send(encoded)
+                await self._transport.send(wire)
             except Exception as exc:
                 raise SessionError(f"Transport send error: {exc}") from exc
             if self._timings is not None:

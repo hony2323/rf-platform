@@ -61,6 +61,7 @@ class ConnectionState(enum.Enum):
 
 class WireEncoding(enum.Enum):
     JSON_BASE64 = "json_base64"
+    BINARY_WS = "binary_ws"
 
 
 # ---------------------------------------------------------------------------

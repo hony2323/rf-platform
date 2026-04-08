@@ -28,7 +28,7 @@ class FakeWebSocket:
         self.response_headers: dict[str, str | None] = {}
         if session_id is not None:
             self.response_headers["X-Session-Id"] = session_id
-        self.sent: list[str] = []
+        self.sent: list[str | bytes] = []
         self._recv_queue: asyncio.Queue[object] = asyncio.Queue()
         self.close_called = False
         self._send_error: Exception | None = None
@@ -38,7 +38,7 @@ class FakeWebSocket:
         """Enqueue a message to be returned by recv()."""
         self._recv_queue.put_nowait(msg)
 
-    async def send(self, msg: str) -> None:
+    async def send(self, msg: str | bytes) -> None:
         if self._send_error is not None:
             raise self._send_error
         self.sent.append(msg)
@@ -171,8 +171,20 @@ async def test_transport_recv_rejects_non_text_message() -> None:
     t = WebSocketTransport(ws_connect=_make_connect(fake_ws))
     await t.connect(_URL, _TOKEN)
 
-    with pytest.raises(TypeError, match="text"):
+    with pytest.raises(TypeError, match="text control message"):
         await t.recv()
+
+
+async def test_transport_recv_binary_type_error_does_not_mention_mvp() -> None:
+    fake_ws = FakeWebSocket()
+    fake_ws.push(b"\xde\xad")
+    t = WebSocketTransport(ws_connect=_make_connect(fake_ws))
+    await t.connect(_URL, _TOKEN)
+
+    with pytest.raises(TypeError) as exc_info:
+        await t.recv()
+
+    assert "MVP" not in str(exc_info.value)
 
 
 async def test_transport_close_closes_underlying_ws_client() -> None:
@@ -229,6 +241,35 @@ async def test_transport_send_failure_raises_connection_error() -> None:
         await t.send("hello")
 
 
+async def test_transport_send_failure_transitions_to_closed() -> None:
+    fake_ws = FakeWebSocket(session_id="ses_x")
+    fake_ws._send_error = OSError("broken pipe")
+    t = WebSocketTransport(ws_connect=_make_connect(fake_ws))
+    await t.connect(_URL, _TOKEN)
+
+    with pytest.raises(ConnectionError):
+        await t.send("hello")
+
+    assert t.state is TransportState.CLOSED
+    assert t.session_id_from_header is None
+
+
+async def test_transport_send_after_send_failure_raises_disconnected() -> None:
+    fake_ws = FakeWebSocket()
+    fake_ws._send_error = OSError("broken pipe")
+    t = WebSocketTransport(ws_connect=_make_connect(fake_ws))
+    await t.connect(_URL, _TOKEN)
+
+    with pytest.raises(ConnectionError):
+        await t.send("hello")
+
+    # subsequent operations must also fail (transport is closed)
+    with pytest.raises(ConnectionError):
+        await t.send("hello again")
+    with pytest.raises(ConnectionError):
+        await t.recv()
+
+
 async def test_transport_recv_failure_raises_connection_error() -> None:
     fake_ws = FakeWebSocket()
     fake_ws._recv_error = OSError("connection reset")
@@ -237,6 +278,47 @@ async def test_transport_recv_failure_raises_connection_error() -> None:
 
     with pytest.raises(ConnectionError):
         await t.recv()
+
+
+async def test_transport_recv_failure_transitions_to_closed() -> None:
+    fake_ws = FakeWebSocket(session_id="ses_y")
+    fake_ws._recv_error = OSError("connection reset")
+    t = WebSocketTransport(ws_connect=_make_connect(fake_ws))
+    await t.connect(_URL, _TOKEN)
+
+    with pytest.raises(ConnectionError):
+        await t.recv()
+
+    assert t.state is TransportState.CLOSED
+    assert t.session_id_from_header is None
+
+
+async def test_transport_send_after_recv_failure_raises_disconnected() -> None:
+    fake_ws = FakeWebSocket()
+    fake_ws._recv_error = OSError("connection reset")
+    t = WebSocketTransport(ws_connect=_make_connect(fake_ws))
+    await t.connect(_URL, _TOKEN)
+
+    with pytest.raises(ConnectionError):
+        await t.recv()
+
+    with pytest.raises(ConnectionError):
+        await t.send("anything")
+    with pytest.raises(ConnectionError):
+        await t.recv()
+
+
+async def test_transport_connect_while_open_raises_connection_error() -> None:
+    fake_ws = FakeWebSocket()
+    t = WebSocketTransport(ws_connect=_make_connect(fake_ws))
+    await t.connect(_URL, _TOKEN)
+    assert t.state is TransportState.OPEN
+
+    with pytest.raises(ConnectionError, match="close()"):
+        await t.connect(_URL, _TOKEN)
+
+    # original connection must be untouched
+    assert t.state is TransportState.OPEN
 
 
 async def test_transport_new_connect_replaces_old_session_id() -> None:
@@ -261,3 +343,15 @@ async def test_transport_new_connect_replaces_old_session_id() -> None:
     await t.connect(_URL, _TOKEN)
 
     assert t.session_id_from_header == "ses_second"
+
+
+async def test_transport_send_bytes_delegates_to_underlying_ws_client() -> None:
+    """send(bytes) must forward the binary payload unchanged."""
+    fake_ws = FakeWebSocket()
+    t = WebSocketTransport(ws_connect=_make_connect(fake_ws))
+    await t.connect(_URL, _TOKEN)
+
+    payload = b"\x00\x0a" + b"header" + b"\xde\xad\xbe\xef"
+    await t.send(payload)
+
+    assert fake_ws.sent == [payload]

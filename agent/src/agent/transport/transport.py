@@ -55,9 +55,12 @@ class WebSocketTransport:
     async def connect(self, url: str, token: str) -> None:
         """Open WebSocket, send Bearer token, capture X-Session-Id.
 
-        On failure the state stays CLOSED and the exception is re-raised
-        as a ``ConnectionError``.
+        Raises ``ConnectionError`` if already OPEN (call ``close()`` first) or
+        if the underlying connect fails (state stays CLOSED).
         """
+        if self._state is TransportState.OPEN:
+            raise ConnectionError("Already connected; call close() before reconnecting")
+
         # Clear stale session_id before every connect attempt.
         self._session_id = None
 
@@ -79,9 +82,11 @@ class WebSocketTransport:
             self._session_id = getattr(ws, "response_headers", {}).get("X-Session-Id")
         self._state = TransportState.OPEN
 
-    async def send(self, message: str) -> None:
-        """Send a text message over the open connection.
+    async def send(self, message: str | bytes) -> None:
+        """Send a text or binary message over the open connection.
 
+        Pass ``str`` for JSON control/frame messages (json_base64 mode).
+        Pass ``bytes`` for binary spectrum frames (binary_ws mode).
         Raises ``ConnectionError`` if the transport is not open or send fails.
         """
         if self._ws is None or self._state is not TransportState.OPEN:
@@ -89,6 +94,9 @@ class WebSocketTransport:
         try:
             await self._ws.send(message)
         except Exception as exc:
+            self._ws = None
+            self._state = TransportState.CLOSED
+            self._session_id = None
             raise ConnectionError(f"WebSocket send failed: {exc}") from exc
 
     async def recv(self) -> str:
@@ -106,11 +114,14 @@ class WebSocketTransport:
         try:
             msg = await self._ws.recv()
         except Exception as exc:
+            self._ws = None
+            self._state = TransportState.CLOSED
+            self._session_id = None
             raise ConnectionError(f"WebSocket recv failed: {exc}") from exc
         if not isinstance(msg, str):
             raise TypeError(
-                f"Expected text frame, got {type(msg).__name__}. "
-                "Binary frames are not supported in MVP."
+                f"recv() expects an inbound text control message; "
+                f"got a binary frame ({type(msg).__name__}) instead"
             )
         return msg
 

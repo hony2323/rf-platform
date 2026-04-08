@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import struct
 from dataclasses import dataclass
 from collections.abc import Callable
 from typing import Any, Protocol
@@ -390,3 +391,38 @@ class JsonBase64Codec:
             config_version=config_version,
             frame_index=frame_index,
         )
+
+
+# ---------------------------------------------------------------------------
+# binary_ws frame encoder (standalone helper — not part of ProtocolCodec)
+# ---------------------------------------------------------------------------
+
+
+def encode_spectrum_frame_binary_ws(
+    node_id: str,
+    session_id: str,
+    stream_id: str,
+    config_version: int,
+    frame_index: int,
+    frame: SpectrumFrame,
+) -> bytes:
+    """Encode a spectrum_frame as a binary WebSocket message.
+
+    Layout: [uint16_be header_len][header_json_utf8][raw payload bytes]
+
+    The header JSON carries all metadata; payload bytes are appended raw
+    (not base64). Control messages are always JSON text; only
+    spectrum_frame uses this binary path.
+    """
+    header: dict[str, Any] = {
+        "msg_type": "spectrum_frame",
+        "node_id": node_id,
+        "session_id": session_id,
+        "stream_id": stream_id,
+        "config_version": config_version,
+        "frame_index": frame_index,
+        "timestamp_utc": frame.timestamp_utc,
+        "bin_count": frame.bin_count,
+    }
+    header_bytes = json.dumps(header).encode("utf-8")
+    return struct.pack(">H", len(header_bytes)) + header_bytes + frame.payload

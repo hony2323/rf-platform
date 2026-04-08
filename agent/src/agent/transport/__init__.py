@@ -38,10 +38,11 @@ class Transport(Protocol):
         """
         ...
 
-    async def send(self, message: str) -> None:
-        """Send a text message over the open connection.
+    async def send(self, message: str | bytes) -> None:
+        """Send a text or binary message over the open connection.
 
-        Raises ConnectionError if not connected.
+        Pass ``str`` for JSON text frames; pass ``bytes`` for binary frames
+        (binary_ws spectrum frames). Raises ConnectionError if not connected.
         """
         ...
 

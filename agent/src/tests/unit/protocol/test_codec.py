@@ -26,6 +26,7 @@ from agent.protocol import (
     JsonBase64Codec,
     ServerError,
     StreamConfigAck,
+    encode_spectrum_frame_binary_ws,
 )
 
 # ---------------------------------------------------------------------------
@@ -555,3 +556,79 @@ def test_json_base64_payload_length_matches_bin_count_times_four_after_decode(
     msg = json.loads(raw)
     decoded = base64.b64decode(msg["data"]["payload"])
     assert len(decoded) == bin_count * 4
+
+
+# ---------------------------------------------------------------------------
+# 6. binary_ws frame encoder
+# ---------------------------------------------------------------------------
+
+_BIN_COUNT = 16
+_CONFIG_VERSION = 3
+_FRAME_INDEX = 7
+
+
+def _make_binary_ws_frame() -> tuple[bytes, SpectrumFrame]:
+    """Return (encoded_bytes, original_frame) for binary_ws tests."""
+    payload = make_payload_bytes(_BIN_COUNT * 4)
+    frame = SpectrumFrame(
+        payload=payload, timestamp_utc=_TIMESTAMP, bin_count=_BIN_COUNT
+    )
+    encoded = encode_spectrum_frame_binary_ws(
+        node_id=_NODE_ID,
+        session_id=_SESSION_ID,
+        stream_id=_STREAM_ID,
+        config_version=_CONFIG_VERSION,
+        frame_index=_FRAME_INDEX,
+        frame=frame,
+    )
+    return encoded, frame
+
+
+def test_encode_spectrum_frame_binary_ws_returns_bytes() -> None:
+    encoded, _ = _make_binary_ws_frame()
+    assert isinstance(encoded, bytes)
+
+
+def test_encode_spectrum_frame_binary_ws_header_length_prefix_is_correct() -> None:
+    encoded, _ = _make_binary_ws_frame()
+    declared_len = int.from_bytes(encoded[:2], "big")
+    # header occupies bytes [2 : 2+declared_len]
+    assert len(encoded) >= 2 + declared_len
+    # the bytes right after the prefix must be valid JSON of that length
+    header_raw = encoded[2 : 2 + declared_len]
+    assert len(header_raw) == declared_len
+    header = json.loads(header_raw)
+    assert isinstance(header, dict)
+
+
+def test_encode_spectrum_frame_binary_ws_decoded_header_fields_match() -> None:
+    encoded, _ = _make_binary_ws_frame()
+    header_len = int.from_bytes(encoded[:2], "big")
+    header = json.loads(encoded[2 : 2 + header_len])
+    assert header["msg_type"] == "spectrum_frame"
+    assert header["node_id"] == _NODE_ID
+    assert header["session_id"] == _SESSION_ID
+    assert header["stream_id"] == _STREAM_ID
+    assert header["config_version"] == _CONFIG_VERSION
+    assert header["frame_index"] == _FRAME_INDEX
+    assert header["timestamp_utc"] == _TIMESTAMP
+    assert header["bin_count"] == _BIN_COUNT
+    # payload must NOT be present in the header
+    assert "payload" not in header
+    assert "data" not in header
+
+
+def test_encode_spectrum_frame_binary_ws_payload_bytes_match_original() -> None:
+    encoded, frame = _make_binary_ws_frame()
+    header_len = int.from_bytes(encoded[:2], "big")
+    raw_payload = encoded[2 + header_len :]
+    assert raw_payload == frame.payload
+
+
+def test_encode_spectrum_frame_binary_ws_payload_length_matches_bin_count_times_four() -> ( # noqa: E501
+    None
+):
+    encoded, _ = _make_binary_ws_frame()
+    header_len = int.from_bytes(encoded[:2], "big")
+    raw_payload = encoded[2 + header_len :]
+    assert len(raw_payload) == _BIN_COUNT * 4
