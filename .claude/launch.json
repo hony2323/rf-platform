@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Fake Agent Server",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["scripts/fake_server.py"],
+      "port": 8765
+    },
+    {
+      "name": "Live Demo",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["scripts/run_demo.py"],
+      "port": 8765
+    }
+  ]
+}

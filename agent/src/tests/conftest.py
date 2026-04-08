@@ -9,9 +9,15 @@ import pytest
 
 from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 from agent.source.sigmf import SigMFSource
+from agent.source.wav import WavSource
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _LTE_DIR = _FIXTURES_DIR / "LTE_uplink_847MHz_2022-01-30_30720ksps_fix"
+_MWLAMP_DIR = _FIXTURES_DIR / "MWlamp_5829250000Hz_1250ksps_fix"
+
+# Known constants for the MWlamp WAV fixture (decoded from filename + header).
+WAV_MWLAMP_CENTER_FREQ_HZ = 5_829_250_000
+WAV_MWLAMP_SAMPLE_RATE_HZ = 1_250_000
 
 
 @pytest.fixture
@@ -60,3 +66,21 @@ def lte_ci16_raw() -> SigMFBuffer:
     data_file = _LTE_DIR / "LTE_uplink_847MHz_2022-01-30_30720ksps.sigmf-data"
     raw_bytes = data_file.read_bytes()
     return SigMFBuffer(descriptor=descriptor, raw_bytes=raw_bytes)
+
+
+@pytest.fixture
+def wav_mwlamp_path() -> Path:
+    """Path to the MWlamp WAV fixture (PCM uint8, 5829.25 MHz, 1.25 Msps).
+
+    8-bit stereo PCM, 100 k complex samples. Trimmed for CI.
+    Center frequency decoded from the filename; not stored in the WAV header.
+    """
+    return _MWLAMP_DIR / "5829250000Hz_MWlamp_1250k_small.wav"
+
+
+@pytest.fixture
+async def wav_mwlamp_source(wav_mwlamp_path: Path) -> WavSource:
+    """Started WavSource for the MWlamp fixture, ready for descriptor access."""
+    source = WavSource(wav_mwlamp_path, center_freq_hz=WAV_MWLAMP_CENTER_FREQ_HZ)
+    await source.start()
+    return source
