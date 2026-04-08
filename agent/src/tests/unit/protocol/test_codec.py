@@ -625,7 +625,7 @@ def test_encode_spectrum_frame_binary_ws_payload_bytes_match_original() -> None:
     assert raw_payload == frame.payload
 
 
-def test_encode_spectrum_frame_binary_ws_payload_length_matches_bin_count_times_four() -> ( # noqa: E501
+def test_encode_spectrum_frame_binary_ws_payload_length_matches_bin_count_times_four() -> (  # noqa: E501
     None
 ):
     encoded, _ = _make_binary_ws_frame()
