@@ -437,7 +437,12 @@ async def run(args: argparse.Namespace) -> None:
             print(json.dumps({"event": "error", "msg": "--freq is required with --wav"}))
             return
         # loops=None → replay the file indefinitely
-        wav_source = WavSource(wav_path, center_freq_hz=args.freq, loops=None)
+        wav_source = WavSource(
+            wav_path,
+            center_freq_hz=args.freq,
+            loops=None,
+            rate_limit_msps=args.rate_limit_msps,
+        )
         await wav_source.start()            # parse WAV header → builds descriptor
         iq = wav_source.descriptor
         rf = RFConfig(
@@ -470,12 +475,13 @@ async def run(args: argparse.Namespace) -> None:
     )
 
     async with FakeAgentServer(server_cfg) as server:
+        wire_encoding = WireEncoding(args.encoding)
         agent_cfg = AgentConfig(
             identity=AgentIdentity(node_id="demo-agent"),
             server=ServerConfig(url=server.ws_url, token="demo-token"),
             rf=rf,
             iq=iq,
-            wire_encoding=WireEncoding.JSON_BASE64,
+            wire_encoding=wire_encoding,
             queues=QueueConfig(iq_queue_size=8, frame_queue_size=16),
             telemetry=TelemetryConfig(
                 heartbeat_interval_s=5.0,
@@ -512,6 +518,7 @@ async def run(args: argparse.Namespace) -> None:
                     "sample_rate_msps": rf.sample_rate_hz / 1e6,
                     "center_freq_mhz": rf.center_freq_hz / 1e6,
                     "iq_format": iq.sample_format.value,
+                    "wire_encoding": args.encoding,
                     "rate_limit_msps": args.rate_limit_msps,
                 }
             ),
@@ -553,6 +560,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="RF agent live demo")
     parser.add_argument("--fft-size", type=int, default=1024)
     parser.add_argument("--sample-rate", type=int, default=2_400_000)
+    parser.add_argument(
+        "--encoding",
+        choices=["json_base64", "binary_ws"],
+        default="json_base64",
+        help="Wire encoding for spectrum frames (default: json_base64)",
+    )
     parser.add_argument("--freq", type=int, default=None, help="Center frequency Hz (required for --wav; defaults to 433920000 for simulator)")
     parser.add_argument("--stats-hz", type=float, default=1.0)
     parser.add_argument(
@@ -567,8 +580,10 @@ def main() -> None:
         default=None,
         metavar="MSPS",
         help=(
-            "Throttle IQ generation to this many mega-samples/sec "
-            "(e.g. 2.4 for RTL-SDR speed). "
+            "Throttle IQ output to this many mega-samples/sec. "
+            "Applies to the synthetic simulator and WAV sources. "
+            "Use the source's native sample rate (e.g. 1.25 for MWlamp WAV) "
+            "to benchmark at real-hardware speed. "
             "Default: unlimited — run as fast as the pipeline allows."
         ),
     )

@@ -105,16 +105,19 @@ class _State(Enum):
 # ---------------------------------------------------------------------------
 
 
+_KNOWN_ENCODINGS = {"json_base64", "binary_ws"}
+
+
 def _validate_connect(msg: dict[str, Any]) -> str | None:
     """Return an error string on failure, None on success."""
     if msg.get("msg_type") != "connect":
         return f"expected msg_type=connect, got {msg.get('msg_type')!r}"
     if msg.get("protocol_version") != "0.3":
         return f"expected protocol_version=0.3, got {msg.get('protocol_version')!r}"
-    if msg.get("requested_encoding") != "json_base64":
+    if msg.get("requested_encoding") not in _KNOWN_ENCODINGS:
         return (
-            f"expected requested_encoding=json_base64, "
-            f"got {msg.get('requested_encoding')!r}"
+            f"unknown requested_encoding: {msg.get('requested_encoding')!r}; "
+            f"expected one of {sorted(_KNOWN_ENCODINGS)}"
         )
     if not msg.get("node_id"):
         return "missing or empty node_id"
@@ -310,10 +313,31 @@ class FakeAgentServer:
         config_version = 1
         frame_count = 0
         sent_nonfatal = False
+        negotiated_encoding = "json_base64"
 
         try:
             async for raw in websocket:
-                if not isinstance(raw, str):
+                # binary_ws spectrum frames arrive as bytes during STREAMING
+                if isinstance(raw, bytes):
+                    if state is _State.STREAMING:
+                        record.rx_bytes += len(raw)
+                        record.frame_count += 1
+                        frame_count += 1
+
+                        n_fatal = self._config.send_fatal_error_after_n_frames
+                        n_disc = self._config.disconnect_after_n_frames
+
+                        if n_fatal is not None and frame_count >= n_fatal:
+                            await _send_error(
+                                websocket, session_id,
+                                "STREAM_ERROR", "test fatal error injection",
+                                fatal=True,
+                            )
+                            return
+
+                        if n_disc is not None and frame_count >= n_disc:
+                            await _send_disconnect(websocket, session_id)
+                            return
                     continue
 
                 record.rx_bytes += len(raw.encode("utf-8"))
@@ -337,6 +361,7 @@ class FakeAgentServer:
                         return
 
                     record.connect_msg = msg
+                    negotiated_encoding = msg.get("requested_encoding", "json_base64")
 
                     if self._config.delay_connect_ack_s > 0:
                         await asyncio.sleep(self._config.delay_connect_ack_s)
@@ -347,7 +372,7 @@ class FakeAgentServer:
                                 "msg_type": "connect_ack",
                                 "session_id": session_id,
                                 "status": "ok",
-                                "wire_encoding": "json_base64",
+                                "wire_encoding": negotiated_encoding,
                             }
                         )
                     )

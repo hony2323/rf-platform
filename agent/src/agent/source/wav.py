@@ -138,11 +138,13 @@ class WavSource(IQSource):
         center_freq_hz: int,
         block_size: int = _DEFAULT_BLOCK_BYTES,
         loops: int | None = 1,
+        rate_limit_msps: float | None = None,
     ) -> None:
         self._wav_path = wav_path
         self._center_freq_hz = center_freq_hz
         self._block_size = block_size
         self._loops = loops
+        self._rate_limit_msps = rate_limit_msps
         self._descriptor: IQDescriptor | None = None
         self._data_offset: int | None = None
 
@@ -186,6 +188,18 @@ class WavSource(IQSource):
                 f"block_size {self._block_size} is smaller than bytes_per_sample {bps}"
             )
 
+        # Rate limiting: timestamp-based leaky-bucket so the output rate matches
+        # the target MSPS even on platforms with coarse sleep granularity.
+        # We track total samples sent and compute a cumulative "expected time"
+        # for each block. When we're ahead of schedule we sleep the deficit;
+        # when we're behind (e.g. previous sleep overshot) we skip sleeping and
+        # let the pipeline drain first, self-correcting without drift.
+        rate_limit_sps: float | None = (
+            self._rate_limit_msps * 1e6 if self._rate_limit_msps is not None else None
+        )
+        start_time: float | None = None
+        total_samples: int = 0
+
         iteration = 0
         while self._loops is None or iteration < self._loops:
             with self._wav_path.open("rb") as f:
@@ -200,5 +214,16 @@ class WavSource(IQSource):
                     if remainder:
                         chunk = chunk[:-remainder]
                     if chunk:
+                        if rate_limit_sps is not None:
+                            if start_time is None:
+                                start_time = asyncio.get_event_loop().time()
+                                total_samples = 0
+                            samples_in_block = len(chunk) // bps
+                            total_samples += samples_in_block
+                            expected_t = start_time + total_samples / rate_limit_sps
+                            now = asyncio.get_event_loop().time()
+                            gap = expected_t - now
+                            if gap > 0:
+                                await asyncio.sleep(gap)
                         await output.put(chunk)
             iteration += 1
