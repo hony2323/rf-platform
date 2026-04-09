@@ -12,6 +12,7 @@ ConfigValidationError -- raised on any validation failure
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from agent.domain import IQDescriptor, RFConfig, WireEncoding
 
@@ -49,6 +50,23 @@ class ReconnectConfig:
 
 
 @dataclass(frozen=True)
+class BandwidthConfig:
+    """Outbound WebSocket bandwidth cap.
+
+    max_bytes_per_sec: hard cap on bytes sent per second. None = unlimited.
+    strategy:
+        "decimate" (default) — space allowed frames evenly over time; the
+            interval between sent frames is stretched to fit the budget.
+        "drop" — send frames greedily until the byte budget is exhausted,
+            then drop the remainder until the next refill window.
+    Dropped frames are counted in DropCounters.local_throttle.
+    """
+
+    max_bytes_per_sec: int | None = None
+    strategy: Literal["decimate", "drop"] = "decimate"
+
+
+@dataclass(frozen=True)
 class AgentConfig:
     """Root config object. Composed from all sub-configs."""
 
@@ -63,6 +81,7 @@ class AgentConfig:
     queues: QueueConfig = field(default_factory=QueueConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     reconnect: ReconnectConfig = field(default_factory=ReconnectConfig)
+    bandwidth: BandwidthConfig = field(default_factory=BandwidthConfig)
 
 
 # Re-export public loading API so callers can do:
@@ -73,6 +92,7 @@ from agent.config.loader import load_config_dict  # noqa: E402
 __all__ = [
     "AgentConfig",
     "AgentIdentity",
+    "BandwidthConfig",
     "ConfigValidationError",
     "QueueConfig",
     "ReconnectConfig",

@@ -54,6 +54,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "agent" / "src"))
 from agent.config import (
     AgentConfig,
     AgentIdentity,
+    BandwidthConfig,
     QueueConfig,
     ReconnectConfig,
     ServerConfig,
@@ -372,7 +373,13 @@ def _make_factories(
     def make_session(
         cfg: AgentConfig, t: WebSocketTransport, c: JsonBase64Codec
     ) -> Session:
-        return Session(config=cfg, transport=t, codec=c, timings=pipeline_timing)
+        return Session(
+            config=cfg,
+            transport=t,
+            codec=c,
+            timings=pipeline_timing,
+            metrics=shared_metrics,
+        )
 
     def make_telemetry(
         cfg: AgentConfig,
@@ -493,6 +500,12 @@ async def run(args: argparse.Namespace) -> None:
                 backoff_factor=2.0,
                 jitter=False,
             ),
+            bandwidth=BandwidthConfig(
+                max_bytes_per_sec=(
+                    int(args.max_bw_kbps * 1000) if args.max_bw_kbps is not None else None
+                ),
+                strategy=args.bw_strategy,
+            ),
         )
 
         transport = WebSocketTransport()
@@ -585,6 +598,27 @@ def main() -> None:
             "Use the source's native sample rate (e.g. 1.25 for MWlamp WAV) "
             "to benchmark at real-hardware speed. "
             "Default: unlimited — run as fast as the pipeline allows."
+        ),
+    )
+    parser.add_argument(
+        "--max-bw-kbps",
+        type=float,
+        default=None,
+        metavar="KBPS",
+        help=(
+            "Cap outbound WebSocket bandwidth to N kilobytes/sec. "
+            "Frames that exceed the budget are dropped and counted in "
+            "local_throttle. Default: unlimited."
+        ),
+    )
+    parser.add_argument(
+        "--bw-strategy",
+        choices=["decimate", "drop"],
+        default="decimate",
+        help=(
+            "How to handle frames when the bandwidth cap is reached. "
+            "'decimate' (default): space sent frames evenly over time. "
+            "'drop': send greedily until the byte budget is exhausted."
         ),
     )
     parser.add_argument(

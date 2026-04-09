@@ -16,6 +16,7 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from agent.telemetry.metrics import MetricsCollector
     from agent.telemetry.stage_timing import PipelineTiming
 
 from agent.config import AgentConfig
@@ -34,6 +35,7 @@ from agent.protocol import (
     StreamConfigAck,
     encode_spectrum_frame_binary_ws,
 )
+from agent.session.bandwidth import make_limiter
 from agent.transport import Transport
 
 _PROTOCOL_VERSION = "0.3"
@@ -102,11 +104,13 @@ class Session:
         transport: Transport,
         codec: ProtocolCodec,
         timings: PipelineTiming | None = None,
+        metrics: MetricsCollector | None = None,
     ) -> None:
         self._config = config
         self._transport = transport
         self._codec = codec
         self._timings = timings
+        self._metrics = metrics
 
         self._state = ConnectionState.DISCONNECTED
         self._session_id: str | None = None
@@ -260,6 +264,10 @@ class Session:
         # Both are guaranteed set after _handshake() completes.
         assert self._session_id is not None
         assert self._config_version is not None
+
+        bw = cfg.bandwidth
+        limiter = make_limiter(bw.max_bytes_per_sec, bw.strategy)
+
         while True:
             if self._timings is not None:
                 self._timings.record_frame_queue_depth(frame_queue.qsize())
@@ -283,6 +291,14 @@ class Session:
                     frame_index=self._frame_index,
                     frame=frame,
                 )
+
+            if limiter is not None:
+                n = len(wire) if isinstance(wire, bytes) else len(wire.encode("utf-8"))
+                if not limiter.should_send(n):
+                    if self._metrics is not None:
+                        self._metrics.inc_local_throttle()
+                    continue
+
             try:
                 await self._transport.send(wire)
             except Exception as exc:
