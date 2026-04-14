@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 from agent.domain import AgentMetrics, DropCounters
@@ -15,6 +16,10 @@ class MetricsCollector:
 
     Gauges hold the latest value set. Drop counters accumulate until
     snapshot() is called, at which point only drops are reset to zero.
+
+    tx_bytes_per_sec is computed from byte accumulation between snapshots:
+    inc_tx_bytes() accumulates bytes; snapshot() divides by elapsed time
+    and resets the accumulator.
     """
 
     def __init__(self, timings: PipelineTiming | None = None) -> None:
@@ -28,6 +33,10 @@ class MetricsCollector:
         self._queue_overflow: int = 0
         self._server_rejected: int = 0
         self._parse_errors: int = 0
+
+        # tx_bytes accumulator — reset on each snapshot
+        self._tx_bytes_acc: int = 0
+        self._tx_window_start: float | None = None
 
         self._timings = timings
 
@@ -80,6 +89,14 @@ class MetricsCollector:
             raise ValueError(f"count must be >= 0, got {count!r}")
         self._parse_errors += count
 
+    def inc_tx_bytes(self, n: int) -> None:
+        """Accumulate outbound bytes. Rate is computed on the next snapshot()."""
+        if n < 0:
+            raise ValueError(f"n must be >= 0, got {n!r}")
+        if self._tx_window_start is None:
+            self._tx_window_start = time.monotonic()
+        self._tx_bytes_acc += n
+
     # ------------------------------------------------------------------
     # Snapshot
     # ------------------------------------------------------------------
@@ -87,8 +104,17 @@ class MetricsCollector:
     def snapshot(self) -> AgentMetrics:
         """Return current metrics and reset drop counters to zero.
 
-        Gauges are NOT reset — they retain the last set value.
+        Gauges are NOT reset — they retain the last set value, except
+        tx_bytes_per_sec which is recomputed from the accumulator when
+        inc_tx_bytes() has been called since the last snapshot.
         """
+        now = time.monotonic()
+        if self._tx_window_start is not None and now > self._tx_window_start:
+            elapsed = now - self._tx_window_start
+            self._tx_bytes_per_sec = int(self._tx_bytes_acc / elapsed)
+            self._tx_bytes_acc = 0
+            self._tx_window_start = now  # start fresh window for next snapshot
+
         metrics = AgentMetrics(
             cpu_usage_pct=self._cpu_usage_pct,
             throttled=self._throttled,

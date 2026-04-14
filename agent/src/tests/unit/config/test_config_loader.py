@@ -14,6 +14,7 @@ import pytest
 from agent.config import ConfigValidationError, load_config_dict
 from agent.config import (
     AgentConfig,
+    BandwidthConfig,
     QueueConfig,
     ReconnectConfig,
     TelemetryConfig,
@@ -487,4 +488,74 @@ def test_config_rejects_non_mapping_rf_section() -> None:
     raw = _valid_raw()
     raw["rf"] = 1024
     with pytest.raises(ConfigValidationError, match="rf"):
+        load_config_dict(raw)
+
+
+# ---------------------------------------------------------------------------
+# Bandwidth config
+# ---------------------------------------------------------------------------
+
+
+def test_config_defaults_bandwidth_to_unlimited() -> None:
+    cfg = load_config_dict(_valid_raw())
+    assert isinstance(cfg.bandwidth, BandwidthConfig)
+    assert cfg.bandwidth.max_bytes_per_sec is None
+    assert cfg.bandwidth.strategy == "decimate"
+
+
+def test_config_loads_bandwidth_with_max_bytes_per_sec() -> None:
+    raw = _valid_raw()
+    raw["bandwidth"] = {"max_bytes_per_sec": 50_000, "strategy": "drop"}
+    cfg = load_config_dict(raw)
+    assert cfg.bandwidth.max_bytes_per_sec == 50_000
+    assert cfg.bandwidth.strategy == "drop"
+
+
+def test_config_loads_bandwidth_decimate_strategy() -> None:
+    raw = _valid_raw()
+    raw["bandwidth"] = {"max_bytes_per_sec": 100_000, "strategy": "decimate"}
+    cfg = load_config_dict(raw)
+    assert cfg.bandwidth.strategy == "decimate"
+
+
+def test_config_bandwidth_defaults_strategy_to_decimate_when_absent() -> None:
+    raw = _valid_raw()
+    raw["bandwidth"] = {"max_bytes_per_sec": 10_000}
+    cfg = load_config_dict(raw)
+    assert cfg.bandwidth.strategy == "decimate"
+
+
+def test_config_bandwidth_absent_section_returns_defaults() -> None:
+    raw = _valid_raw()
+    # Explicitly no bandwidth key
+    raw.pop("bandwidth", None)
+    cfg = load_config_dict(raw)
+    assert cfg.bandwidth.max_bytes_per_sec is None
+
+
+def test_config_rejects_non_mapping_bandwidth_section() -> None:
+    raw = _valid_raw()
+    raw["bandwidth"] = "fast"
+    with pytest.raises(ConfigValidationError, match="bandwidth"):
+        load_config_dict(raw)
+
+
+def test_config_rejects_non_positive_bandwidth_max_bytes_per_sec() -> None:
+    raw = _valid_raw()
+    raw["bandwidth"] = {"max_bytes_per_sec": 0}
+    with pytest.raises(ConfigValidationError, match="bandwidth.max_bytes_per_sec"):
+        load_config_dict(raw)
+
+
+def test_config_rejects_non_integer_bandwidth_max_bytes_per_sec() -> None:
+    raw = _valid_raw()
+    raw["bandwidth"] = {"max_bytes_per_sec": 1000.5}
+    with pytest.raises(ConfigValidationError, match="bandwidth.max_bytes_per_sec"):
+        load_config_dict(raw)
+
+
+def test_config_rejects_unknown_bandwidth_strategy() -> None:
+    raw = _valid_raw()
+    raw["bandwidth"] = {"max_bytes_per_sec": 1000, "strategy": "throttle"}
+    with pytest.raises(ConfigValidationError, match="bandwidth.strategy"):
         load_config_dict(raw)

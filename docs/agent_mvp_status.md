@@ -1,6 +1,6 @@
 # Agent — MVP Status
 
-**Date:** 2026-04-09  
+**Date:** 2026-04-14  
 **Protocol version:** 0.3 (frozen)
 
 This document describes what is implemented in the agent, what is stubbed or hollow, and what is missing before the agent can be considered production-ready for MVP.
@@ -160,9 +160,8 @@ All message fields match protocol v0.3. `HardwareInfo` is in the domain but **no
 
 | Suite | Coverage |
 |---|---|
-| Unit | domain, config loader, parse_iq, FFT pipeline, IQ processor, protocol codec, session state machine, transport, metrics, telemetry loop, runner, WAV source, SigMF source |
+| Unit | domain, config loader (incl. bandwidth), parse_iq, FFT pipeline, IQ processor, protocol codec, session state machine (incl. server_rejected counters), transport, metrics, telemetry loop, runner, WAV source, SigMF source, bandwidth limiters |
 | Integration | Handshake flow, streaming flow, runtime recovery (reconnect, mid-session config update, fatal/non-fatal errors) |
-| Missing | `session/bandwidth.py` — no unit tests |
 
 ---
 
@@ -181,27 +180,6 @@ There is no `IQSource` implementation that talks to real SDR hardware (RTL-SDR, 
 ### Missing: Config file loading
 
 `load_config_dict` accepts a Python dict. There is no function that reads a file (YAML, TOML, JSON) and feeds it to the loader. There is also no environment variable override layer (e.g. `AGENT_SERVER_TOKEN`).
-
-### Gap: `BandwidthConfig` not in `load_config_dict`
-
-`BandwidthConfig` was added to `AgentConfig` but `load_config_dict` does not parse the `bandwidth` section from raw input. Any config loaded via `load_config_dict` will always use the defaults (unlimited).
-
-### Hollow: Agent status metrics are mostly zeros
-
-`MetricsCollector` has setters for `throttled`, `tx_bytes_per_sec`, `queue_depth`, and `queue_fill_pct` but nothing calls them (except `set_cpu_usage_pct` in `run_demo.py`). Every `agent_status` message sent by a production agent reports:
-
-```json
-"throttled": false,
-"tx_bytes_per_sec": 0,
-"queue_depth": 0,
-"queue_fill_pct": 0
-```
-
-These fields exist in the protocol and are expected by the server.
-
-### Hollow: `server_rejected` drop counter never incremented
-
-`DropCounters.server_rejected` is defined and serialized in `agent_status`, but `Session._recv_loop` does not call `inc_server_rejected()` when it receives an `INVALID_FRAME` or `FRAME_TOO_LARGE` error from the server. The counter is permanently zero.
 
 ### Gap: `HardwareInfo` not sent in `connect`
 
@@ -222,10 +200,6 @@ The protocol spec includes an optional `hardware` block in `connect`. `HardwareI
 ### Gap: `RATE_EXCEEDED` and `CONFIG_REJECTED` not specially handled
 
 `Session._recv_loop` treats all non-fatal server errors as "continue". `RATE_EXCEEDED` should probably trigger backpressure or reduce send rate. `CONFIG_REJECTED` (non-OK `stream_config_ack`) is a protocol violation and should raise `SessionError`.
-
-### Missing: Bandwidth limiter tests
-
-`session/bandwidth.py` has no unit tests. `DecimateLimiter` and `DropLimiter` are not covered.
 
 ---
 

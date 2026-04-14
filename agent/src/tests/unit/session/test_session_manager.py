@@ -28,6 +28,7 @@ from agent.domain import (
 )
 from agent.protocol import ConnectAck, Disconnect, ServerError, StreamConfigAck
 from agent.session import Session, SessionError
+from agent.telemetry.metrics import MetricsCollector
 from agent.transport import TransportState
 
 # ---------------------------------------------------------------------------
@@ -1026,6 +1027,122 @@ async def test_json_base64_path_sends_non_bytes_frames() -> None:
     ]
     assert len(frame_msgs) >= 1
     assert not any(isinstance(m, bytes) for m in transport.sent)
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# 11. server_rejected counter
+# ---------------------------------------------------------------------------
+
+
+def make_error_with_code(
+    code: str,
+    fatal: bool = False,
+    session_id: str = _SESSION_ID,
+) -> dict:
+    return {
+        "msg_type": "error",
+        "session_id": session_id,
+        "code": code,
+        "message": "server rejected frame",
+        "fatal": fatal,
+    }
+
+
+def make_session_with_metrics(
+    transport: FakeTransport | None = None,
+    codec: FakeCodec | None = None,
+) -> tuple[Session, MetricsCollector]:
+
+    if transport is None:
+        transport = FakeTransport()
+    if codec is None:
+        codec = FakeCodec()
+    config = AgentConfig(
+        identity=AgentIdentity(node_id="node_test"),
+        server=ServerConfig(url="wss://test", token="test-token"),
+        rf=RFConfig(
+            center_freq_hz=100_000_000,
+            sample_rate_hz=1_000_000,
+            fft_size=4,
+        ),
+        iq=IQDescriptor(
+            sample_format=SampleFormat.FLOAT32,
+            endianness=Endianness.LITTLE,
+            layout=Layout.INTERLEAVED,
+            sample_rate_hz=1_000_000,
+            center_freq_hz=100_000_000,
+        ),
+    )
+    metrics = MetricsCollector()
+    session = Session(config=config, transport=transport, codec=codec, metrics=metrics)
+    return session, metrics
+
+
+async def test_server_rejected_increments_on_invalid_frame() -> None:
+    transport = FakeTransport()
+    session, metrics = make_session_with_metrics(transport)
+    frame_queue: asyncio.Queue = asyncio.Queue()
+
+    transport.queue_inbound(make_connect_ack())
+    transport.queue_inbound(make_stream_config_ack())
+    transport.queue_inbound(make_error_with_code("INVALID_FRAME", fatal=False))
+
+    task = asyncio.create_task(session.run(frame_queue))
+    await asyncio.sleep(0.05)
+
+    snap = metrics.snapshot()
+    assert snap.drops.server_rejected == 1
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def test_server_rejected_increments_on_frame_too_large() -> None:
+    transport = FakeTransport()
+    session, metrics = make_session_with_metrics(transport)
+    frame_queue: asyncio.Queue = asyncio.Queue()
+
+    transport.queue_inbound(make_connect_ack())
+    transport.queue_inbound(make_stream_config_ack())
+    transport.queue_inbound(make_error_with_code("FRAME_TOO_LARGE", fatal=False))
+
+    task = asyncio.create_task(session.run(frame_queue))
+    await asyncio.sleep(0.05)
+
+    snap = metrics.snapshot()
+    assert snap.drops.server_rejected == 1
+
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+async def test_server_rejected_not_incremented_for_other_nonfatal_errors() -> None:
+    transport = FakeTransport()
+    session, metrics = make_session_with_metrics(transport)
+    frame_queue: asyncio.Queue = asyncio.Queue()
+
+    transport.queue_inbound(make_connect_ack())
+    transport.queue_inbound(make_stream_config_ack())
+    # A non-fatal error that is not INVALID_FRAME or FRAME_TOO_LARGE
+    transport.queue_inbound(make_error_with_code("RATE_EXCEEDED", fatal=False))
+
+    task = asyncio.create_task(session.run(frame_queue))
+    await asyncio.sleep(0.05)
+
+    snap = metrics.snapshot()
+    assert snap.drops.server_rejected == 0
 
     task.cancel()
     try:

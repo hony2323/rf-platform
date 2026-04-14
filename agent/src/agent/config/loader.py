@@ -25,6 +25,7 @@ from agent.domain import (
 from . import (
     AgentConfig,
     AgentIdentity,
+    BandwidthConfig,
     QueueConfig,
     ReconnectConfig,
     ServerConfig,
@@ -51,6 +52,7 @@ def load_config_dict(raw: Mapping[str, Any]) -> AgentConfig:
     queues = _load_queues(raw.get("queues"))
     telemetry = _load_telemetry(raw.get("telemetry"))
     reconnect = _load_reconnect(raw.get("reconnect"))
+    bandwidth = _load_bandwidth(raw.get("bandwidth"))
 
     _check_iq_rf_consistency(iq, rf)
 
@@ -64,6 +66,7 @@ def load_config_dict(raw: Mapping[str, Any]) -> AgentConfig:
         queues=queues,
         telemetry=telemetry,
         reconnect=reconnect,
+        bandwidth=bandwidth,
     )
 
 
@@ -271,6 +274,38 @@ def _load_reconnect(raw: Any) -> ReconnectConfig:
         max_delay_s=max_delay,
         backoff_factor=float(backoff),
         jitter=jitter,
+    )
+
+
+def _load_bandwidth(raw: Any) -> BandwidthConfig:
+    if raw is None:
+        return BandwidthConfig()
+    sec = _require_section(raw, "bandwidth")
+
+    max_bps_raw = sec.get("max_bytes_per_sec")
+    max_bytes_per_sec: int | None = None
+    if max_bps_raw is not None:
+        if not isinstance(max_bps_raw, int) or isinstance(max_bps_raw, bool):
+            raise ConfigValidationError(
+                "bandwidth.max_bytes_per_sec: must be an integer"
+            )
+        if max_bps_raw <= 0:
+            raise ConfigValidationError(
+                f"bandwidth.max_bytes_per_sec: must be a positive integer,"
+                f" got {max_bps_raw}"
+            )
+        max_bytes_per_sec = max_bps_raw
+
+    strategy_raw = sec.get("strategy", "decimate")
+    if strategy_raw not in ("decimate", "drop"):
+        raise ConfigValidationError(
+            f"bandwidth.strategy: unsupported value {strategy_raw!r};"
+            f" allowed: 'decimate', 'drop'"
+        )
+
+    return BandwidthConfig(
+        max_bytes_per_sec=max_bytes_per_sec,
+        strategy=strategy_raw,
     )
 
 

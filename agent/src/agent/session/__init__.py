@@ -255,9 +255,16 @@ class Session:
             t.cancel()
             with suppress(asyncio.CancelledError):
                 await t
+        # Retrieve exceptions from ALL finished tasks before raising so that
+        # asyncio does not log "Task exception was never retrieved" for any of
+        # them (which happens when the exception is not fetched before GC).
+        first_exc: BaseException | None = None
         for t in done:
-            if (exc := t.exception()) is not None:
-                raise exc
+            if not t.cancelled() and (task_exc := t.exception()) is not None:
+                if first_exc is None:
+                    first_exc = task_exc
+        if first_exc is not None:
+            raise first_exc
 
     async def _send_loop(self, frame_queue: asyncio.Queue[SpectrumFrame]) -> None:
         cfg = self._config
@@ -267,10 +274,19 @@ class Session:
 
         bw = cfg.bandwidth
         limiter = make_limiter(bw.max_bytes_per_sec, bw.strategy)
+        frame_queue_max = cfg.queues.frame_queue_size
 
         while True:
+            q_depth = frame_queue.qsize()
             if self._timings is not None:
-                self._timings.record_frame_queue_depth(frame_queue.qsize())
+                self._timings.record_frame_queue_depth(q_depth)
+            if self._metrics is not None:
+                self._metrics.set_queue_depth(q_depth)
+                fill_pct = (
+                    (q_depth / frame_queue_max * 100.0) if frame_queue_max > 0 else 0.0
+                )
+                self._metrics.set_queue_fill_pct(fill_pct)
+
             frame = await frame_queue.get()
             t_send = time.perf_counter()
             if self._wire_encoding == WireEncoding.BINARY_WS:
@@ -297,12 +313,26 @@ class Session:
                 if not limiter.should_send(n):
                     if self._metrics is not None:
                         self._metrics.inc_local_throttle()
+                        self._metrics.set_throttled(True)
                     continue
+
+            if self._metrics is not None:
+                self._metrics.set_throttled(False)
 
             try:
                 await self._transport.send(wire)
             except Exception as exc:
                 raise SessionError(f"Transport send error: {exc}") from exc
+
+            if self._metrics is not None:
+                if isinstance(wire, bytes):
+                    n_sent = len(wire)
+                elif isinstance(wire, str):
+                    n_sent = len(wire.encode("utf-8"))
+                else:
+                    n_sent = 0
+                self._metrics.inc_tx_bytes(n_sent)
+
             if self._timings is not None:
                 self._timings.record_encode_send_ms(
                     (time.perf_counter() - t_send) * 1000.0
@@ -326,7 +356,11 @@ class Session:
             elif isinstance(msg, ServerError):
                 if msg.fatal:
                     raise SessionError(f"Fatal server error: {msg.code}")
-                # nonfatal: continue
+                # Non-fatal frame rejection errors increment server_rejected.
+                if msg.code in ("INVALID_FRAME", "FRAME_TOO_LARGE"):
+                    if self._metrics is not None:
+                        self._metrics.inc_server_rejected()
+                # Other non-fatal errors: continue
             elif isinstance(msg, StreamConfigAck):
                 # Validate before mutating any state — fail session on bad ack
                 cfg = self._config
