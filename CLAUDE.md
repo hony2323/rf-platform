@@ -127,6 +127,11 @@ The most important parser test is the **known-signal test** (pure tone at a know
 - Post-MVP items (planar layout, binary_ws, msgpack, multi-tuner stream_id, epoch_ms, phase_rad, psd_db) are explicitly deferred — do not implement them.
 
 
+## Status tracking
+
+Before starting any implementation task, read `docs/agent_mvp_status.md` to understand the current state of the codebase.  
+After completing an implementation task (files changed), update `docs/agent_mvp_status.md` to reflect what changed — close gaps that are now resolved, update "What exists" tables, and add any new gaps discovered during implementation.
+
 ## Developer notes (made by human)
 You need to make sure that the changes that you make align with the original design of the code.  
 if you are not sure of the design and the flow you need to ask and clearify  
