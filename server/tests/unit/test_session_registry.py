@@ -263,3 +263,106 @@ def test_viewer_subscription_subscribed_at_is_set():
     before = datetime.now(UTC)
     v = make_viewer()
     assert v.subscribed_at >= before
+
+
+# ---------------------------------------------------------------------------
+# One-session-per-agent invariant
+# ---------------------------------------------------------------------------
+
+def test_adding_second_session_for_same_agent_evicts_first():
+    reg = SessionRegistry()
+    s1 = make_session("ses_1", agent_id="agent_x")
+    s2 = make_session("ses_2", agent_id="agent_x")
+    reg.add_session(s1)
+    reg.add_session(s2)
+    # Only the new session survives
+    assert reg.get_session("ses_1") is None
+    assert reg.get_session("ses_2") is s2
+
+
+def test_get_session_by_agent_returns_latest_after_replacement():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1", agent_id="agent_x"))
+    reg.add_session(make_session("ses_2", agent_id="agent_x"))
+    result = reg.get_session_by_agent("agent_x")
+    assert result is not None
+    assert result.session_id == "ses_2"
+
+
+def test_agent_index_is_consistent_after_replacement():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1", agent_id="agent_x"))
+    reg.add_session(make_session("ses_2", agent_id="agent_x"))
+    # Only one session total
+    assert len(reg.all_sessions()) == 1
+
+
+def test_different_agents_can_coexist():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1", agent_id="agent_a"))
+    reg.add_session(make_session("ses_2", agent_id="agent_b"))
+    assert reg.get_session_by_agent("agent_a").session_id == "ses_1"
+    assert reg.get_session_by_agent("agent_b").session_id == "ses_2"
+    assert len(reg.all_sessions()) == 2
+
+
+def test_replacing_session_same_session_id_is_idempotent():
+    reg = SessionRegistry()
+    s = make_session("ses_1", agent_id="agent_x")
+    reg.add_session(s)
+    reg.add_session(s)  # same object, same IDs
+    assert reg.get_session("ses_1") is s
+    assert len(reg.all_sessions()) == 1
+
+
+# ---------------------------------------------------------------------------
+# Cascade viewer cleanup on session removal
+# ---------------------------------------------------------------------------
+
+def test_remove_session_also_removes_attached_viewers():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1"))
+    reg.add_viewer(make_viewer("sub_1", session_id="ses_1"))
+    reg.add_viewer(make_viewer("sub_2", session_id="ses_1"))
+    reg.remove_session("ses_1")
+    assert reg.get_viewer("sub_1") is None
+    assert reg.get_viewer("sub_2") is None
+
+
+def test_remove_session_does_not_remove_viewers_for_other_session():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1", agent_id="a1"))
+    reg.add_session(make_session("ses_2", agent_id="a2"))
+    reg.add_viewer(make_viewer("sub_1", session_id="ses_1"))
+    reg.add_viewer(make_viewer("sub_2", session_id="ses_2"))
+    reg.remove_session("ses_1")
+    assert reg.get_viewer("sub_2") is not None
+
+
+def test_remove_session_cascade_leaves_no_orphaned_viewers():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1"))
+    reg.add_viewer(make_viewer("sub_1", session_id="ses_1"))
+    reg.add_viewer(make_viewer("sub_2", session_id="ses_1"))
+    reg.remove_session("ses_1")
+    assert reg.get_viewers_for_session("ses_1") == []
+    assert reg.all_viewers() == []
+
+
+def test_remove_unknown_session_does_not_affect_viewers():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1"))
+    reg.add_viewer(make_viewer("sub_1", session_id="ses_1"))
+    result = reg.remove_session("nonexistent")
+    assert result is None
+    assert reg.get_viewer("sub_1") is not None
+
+
+def test_evicting_old_session_on_add_also_removes_its_viewers():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1", agent_id="agent_x"))
+    reg.add_viewer(make_viewer("sub_1", session_id="ses_1"))
+    # New session for same agent evicts ses_1 and its viewers
+    reg.add_session(make_session("ses_2", agent_id="agent_x"))
+    assert reg.get_viewer("sub_1") is None
+    assert reg.get_viewers_for_session("ses_1") == []
