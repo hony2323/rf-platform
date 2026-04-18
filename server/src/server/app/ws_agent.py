@@ -128,6 +128,10 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             await _send_fatal(websocket, session_id, "INVALID_FRAME", "expected stream_config")
             return
 
+        if err := _check_node_id(msg.node_id, agent.stable_node_id):
+            await _send_fatal(websocket, session_id, "INVALID_FRAME", err)
+            return
+
         if err := _check_session_id(msg.session_id, session_id):
             await _send_fatal(websocket, session_id, "INVALID_FRAME", err)
             return
@@ -142,11 +146,11 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             stream_id=stream_id,
             config_version=config_version,
         )
-        registry.add_session(session)
 
         await websocket.send_text(
             encode_stream_config_ack(session_id, stream_id, config_version)
         )
+        registry.add_session(session)
 
         # ---- frame / heartbeat / status loop ----
         while True:
@@ -155,11 +159,8 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                 msg = decode_message(raw)
             except ProtocolError as exc:
                 await websocket.send_text(
-                    encode_error(session_id, exc.code, exc.message, exc.fatal)
+                    encode_error(session_id, exc.code, exc.message, fatal=False)
                 )
-                if exc.fatal:
-                    await websocket.close()
-                    return
                 continue
 
             if isinstance(msg, (HeartbeatMsg, AgentStatusMsg, StreamConfigMsg, SpectrumFrameMsg)):
@@ -183,7 +184,7 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     encode_stream_config_ack(session_id, msg.stream_id, config_version)
                 )
             elif isinstance(msg, SpectrumFrameMsg):
-                pass  # Phase 6: frame ingestion
+                pass  # Phase 6: payload validation and ingestion — currently accepted but not validated
             else:
                 await websocket.send_text(
                     encode_error(session_id, "INVALID_FRAME", "unexpected message type", fatal=False)

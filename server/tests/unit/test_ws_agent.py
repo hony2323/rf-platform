@@ -451,6 +451,23 @@ async def test_connect_node_id_mismatch_rejected(app, db_state):
     await ws.close()
 
 
+async def test_stream_config_node_id_mismatch_rejected(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    await ws.connect()
+    await ws.send_json(_connect_msg())
+    await ws.recv_json()  # connect_ack
+
+    session_id = ws.accept_headers["x-session-id"]
+    bad_cfg = dict(_stream_config_msg(session_id), node_id="wrong_node")
+    await ws.send_json(bad_cfg)
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is True
+    assert len(app.state.registry.all_sessions()) == 0
+    await ws.close()
+
+
 async def test_stream_config_with_wrong_session_id_rejected(app, db_state):
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
     await ws.connect()
