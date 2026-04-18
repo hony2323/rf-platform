@@ -42,6 +42,17 @@ async def test_session_factory_yields_async_session():
         assert isinstance(session, AsyncSession)
 
 
+async def test_repeated_init_db_is_idempotent():
+    await db_module.init_db(":memory:")
+    engine_after_first = db_module._engine
+    factory_after_first = db_module._session_factory
+
+    await db_module.init_db(":memory:")
+
+    assert db_module._engine is engine_after_first
+    assert db_module._session_factory is factory_after_first
+
+
 async def test_init_db_creates_tables():
     from sqlalchemy import text
     await db_module.init_db(":memory:")

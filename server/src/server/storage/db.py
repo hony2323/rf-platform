@@ -25,6 +25,9 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 async def init_db(db_path: str = "rf_platform.db") -> None:
     global _engine, _session_factory
+    if _engine is not None:
+        return
+
     from server.storage import models  # noqa: F401 — registers ORM models
 
     _engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
