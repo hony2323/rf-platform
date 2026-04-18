@@ -14,7 +14,7 @@ This document tracks which implementation phases are done, in-progress, or pendi
 |---|-------|--------|
 | 1 | Storage bootstrap | **Done** |
 | 2 | Browser auth | **Done** |
-| 3 | Agent + token CRUD API | Pending |
+| 3 | Agent + token CRUD API | **Done** |
 | 4 | Runtime session registry | Pending |
 | 5 | Agent WebSocket + handshake | Pending |
 | 6 | Spectrum frame ingestion | Pending |
@@ -69,15 +69,22 @@ This document tracks which implementation phases are done, in-progress, or pendi
 
 ---
 
-## Phase 3 — Agent + token CRUD API
+## Phase 3 — Agent + token CRUD API ✓
 
 **Goal:** User can create agents and mint tokens via HTTP.
 
-### Plan
-- `GET /agents`, `POST /agents`, `GET /agents/{id}`
-- `POST /agents/{id}/tokens`, `GET /agents/{id}/tokens`, `POST /agents/{id}/tokens/{token_id}/revoke`
-- Hash token before storing, return raw token once in creation response
-- Tests: ownership isolation between users
+### What exists
+
+| File | Purpose |
+|------|---------|
+| `app/agent_routes.py` | `GET /agents`, `POST /agents`, `GET /agents/{id}`, `GET /agents/{id}/tokens`, `POST /agents/{id}/tokens`, `POST /agents/{id}/tokens/{token_id}/revoke` |
+| `tests/unit/test_agent_routes.py` | 11 tests: CRUD, ownership isolation, token creation/revocation/listing |
+
+### Key constraints upheld
+- All routes require `get_current_user` — unauthenticated requests get 401
+- Agent reads are ownership-scoped: another user's agent returns 404 (not 403, to avoid enumeration)
+- Raw token returned once at creation; only SHA-256 hash stored in DB
+- Revoked tokens excluded from `GET /tokens`; double-revoke returns 404
 
 ---
 

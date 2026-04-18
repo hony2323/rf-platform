@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from server.app.agent_routes import router as agent_router
 from server.app.http_routes import router as http_router
 from server.storage.db import init_db
 
@@ -16,4 +17,5 @@ def create_app(db_path: str = "rf_platform.db") -> FastAPI:
 
     app = FastAPI(title="RF Platform", version="0.3.0", lifespan=lifespan)
     app.include_router(http_router)
+    app.include_router(agent_router)
     return app
