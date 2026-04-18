@@ -11,24 +11,24 @@ class Base(DeclarativeBase):
     pass
 
 
-def get_engine(db_path: str = "rf_platform.db"):
-    global _engine
+def get_engine():
     if _engine is None:
-        _engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
+        raise RuntimeError("Database not initialized — call init_db() at startup.")
     return _engine
 
 
-def get_session_factory(db_path: str = "rf_platform.db") -> async_sessionmaker[AsyncSession]:
-    global _session_factory
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
     if _session_factory is None:
-        engine = get_engine(db_path)
-        _session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        raise RuntimeError("Database not initialized — call init_db() at startup.")
     return _session_factory
 
 
 async def init_db(db_path: str = "rf_platform.db") -> None:
+    global _engine, _session_factory
     from server.storage import models  # noqa: F401 — registers ORM models
 
-    engine = get_engine(db_path)
-    async with engine.begin() as conn:
+    _engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}", echo=False)
+    _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
+
+    async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
