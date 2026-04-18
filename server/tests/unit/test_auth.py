@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+import server.storage.db as db_module
 from server.app.api import create_app
 from server.auth.passwords import hash_password
 from server.storage import models  # noqa: F401
-import server.storage.db as db_module
-from server.storage.db import Base
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from server.storage.repositories import users as users_repo
 
 
@@ -35,7 +34,6 @@ async def client():
 
 @pytest.fixture
 async def registered_user(client: AsyncClient):
-    """Creates a user directly in the DB and returns (email, password)."""
     engine = db_module._engine
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
@@ -49,6 +47,16 @@ async def test_login_success(client: AsyncClient, registered_user):
     assert resp.status_code == 200
     assert resp.json()["email"] == email
     assert "session" in resp.cookies
+
+
+async def test_login_sets_cookie_attributes(client: AsyncClient, registered_user):
+    email, password = registered_user
+    resp = await client.post("/auth/login", json={"email": email, "password": password})
+    assert resp.status_code == 200
+    set_cookie = resp.headers["set-cookie"].lower()
+    assert "httponly" in set_cookie
+    assert "samesite=lax" in set_cookie
+    assert "path=/" in set_cookie
 
 
 async def test_login_wrong_password(client: AsyncClient, registered_user):
@@ -81,6 +89,14 @@ async def test_logout_clears_cookie(client: AsyncClient, registered_user):
     await client.post("/auth/logout")
     resp = await client.get("/me")
     assert resp.status_code == 401
+
+
+async def test_logout_deletes_cookie_with_path(client: AsyncClient, registered_user):
+    email, password = registered_user
+    await client.post("/auth/login", json={"email": email, "password": password})
+    resp = await client.post("/auth/logout")
+    set_cookie = resp.headers["set-cookie"].lower()
+    assert "path=/" in set_cookie
 
 
 async def test_tampered_cookie_rejected(client: AsyncClient):
