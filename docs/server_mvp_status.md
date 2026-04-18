@@ -13,7 +13,7 @@ This document tracks which implementation phases are done, in-progress, or pendi
 | # | Phase | Status |
 |---|-------|--------|
 | 1 | Storage bootstrap | **Done** |
-| 2 | Browser auth | Pending |
+| 2 | Browser auth | **Done** |
 | 3 | Agent + token CRUD API | Pending |
 | 4 | Runtime session registry | Pending |
 | 5 | Agent WebSocket + handshake | Pending |
@@ -48,16 +48,24 @@ This document tracks which implementation phases are done, in-progress, or pendi
 
 ---
 
-## Phase 2 — Browser auth
+## Phase 2 — Browser auth ✓
 
 **Goal:** User can log in and access only their own resources.
 
-### Plan
-- `auth/passwords.py` — bcrypt hash/verify
-- `auth/browser_auth.py` — signed cookie session issue/verify
-- `app/http_routes.py` — `POST /auth/login`, `POST /auth/logout`, `GET /me`
-- `app/deps.py` — `get_current_user` FastAPI dependency
-- Tests: login success/failure, protected route rejection, correct user returned
+### What exists
+
+| File | Purpose |
+|------|---------|
+| `auth/passwords.py` | `hash_password`, `verify_password` using `bcrypt` directly |
+| `auth/browser_auth.py` | `make_session_cookie`, `read_session_cookie` via `itsdangerous` signed cookie |
+| `app/http_routes.py` | `POST /auth/login`, `POST /auth/logout`, `GET /me`; router included in `api.py` |
+| `app/deps.py` | `get_db` (existing) + `get_current_user` FastAPI dependency |
+| `tests/unit/test_auth.py` | 7 tests: login success/failure, unknown email, `/me` unauthenticated, `/me` authenticated, logout clears cookie, tampered cookie rejected |
+
+### Key constraints upheld
+- Passwords never stored plain — only bcrypt hashes
+- Cookie is HMAC-signed with `itsdangerous`; tampered values rejected with 401
+- `_SECRET` is a dev constant — Phase 9 will wire it to a settings object
 
 ---
 

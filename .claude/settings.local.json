@@ -3,7 +3,10 @@
     "allow": [
       "Bash(python -m pytest -m \"not integration\" -q)",
       "Bash(python:*)",
-      "Bash(pytest tests/unit/ -v)"
+      "Bash(pytest tests/unit/ -v)",
+      "Bash(venv/Scripts/pip install *)",
+      "Bash(venv/Scripts/pytest tests/unit/test_auth.py -v)",
+      "Bash(venv/Scripts/pytest -v)"
     ]
   }
 }
