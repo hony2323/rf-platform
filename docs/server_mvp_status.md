@@ -15,7 +15,7 @@ This document tracks which implementation phases are done, in-progress, or pendi
 | 1 | Storage bootstrap | **Done** |
 | 2 | Browser auth | **Done** |
 | 3 | Agent + token CRUD API | **Done** |
-| 4 | Runtime session registry | Pending |
+| 4 | Runtime session registry | **Done** |
 | 5 | Agent WebSocket + handshake | Pending |
 | 6 | Spectrum frame ingestion | Pending |
 | 7 | Viewer WebSocket + fanout | Pending |
@@ -88,14 +88,23 @@ This document tracks which implementation phases are done, in-progress, or pendi
 
 ---
 
-## Phase 4 — Runtime session registry
+## Phase 4 — Runtime session registry ✓
 
 **Goal:** In-memory live session state exists independently of SQLite.
 
-### Plan
-- `sessions/models.py` — `LiveAgentSession`, `ViewerSubscription` dataclasses
-- `sessions/registry.py` — dict-backed registry: create/remove/lookup/update methods
-- Tests: lifecycle, no DB involvement
+### What exists
+
+| File | Purpose |
+|------|---------|
+| `sessions/models.py` | `LiveAgentSession` (session_id, agent_id, user_id, stream_id, config_version, heartbeat, status, frame_queue), `ViewerSubscription` (subscription_id, user_id, agent_id, session_id, send_queue) |
+| `sessions/registry.py` | `SessionRegistry`: add/remove/get by session_id or agent_id, heartbeat/status/config_version update, viewer add/remove/lookup by session |
+| `tests/unit/test_session_registry.py` | 30 tests: lifecycle, mutations, isolation, model defaults |
+
+### Key constraints upheld
+- No DB involvement — all state is pure in-memory
+- Each `LiveAgentSession` carries its own `asyncio.Queue` for frame fanout
+- Each `ViewerSubscription` carries its own `asyncio.Queue` for outbound delivery
+- Registry instances are fully independent (no module-level singletons)
 
 ---
 
