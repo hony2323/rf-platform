@@ -432,3 +432,121 @@ async def test_spectrum_frame_accepted_silently(app, db_state):
     })
     # No response expected for frames in phase 5
     await ws.close()
+
+
+# ---------------------------------------------------------------------------
+# Identity / session consistency validation
+# ---------------------------------------------------------------------------
+
+async def test_connect_node_id_mismatch_rejected(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    await ws.connect()
+    # agent was registered with stable_node_id "node_x"; send a different one
+    msg = dict(_connect_msg(), node_id="wrong_node")
+    await ws.send_json(msg)
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is True
+    await ws.close()
+
+
+async def test_stream_config_with_wrong_session_id_rejected(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    await ws.connect()
+    await ws.send_json(_connect_msg())
+    await ws.recv_json()  # connect_ack
+
+    # Use a different session_id in stream_config
+    bad_cfg = dict(_stream_config_msg("ses_wrong_session_id"))
+    await ws.send_json(bad_cfg)
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is True
+
+    # Session must not be in the registry
+    assert len(app.state.registry.all_sessions()) == 0
+    await ws.close()
+
+
+async def test_heartbeat_with_wrong_session_id_is_ignored_and_errors(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_full_handshake(ws)
+    session = app.state.registry.get_session(session_id)
+    before = session.last_heartbeat_at
+
+    await ws.send_json({
+        "msg_type": "heartbeat",
+        "node_id": "node_x",
+        "session_id": "ses_wrong",
+        "timestamp_utc": "2026-01-01T00:00:05.000Z",
+    })
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is False
+    assert session.last_heartbeat_at == before  # no mutation
+    await ws.close()
+
+
+async def test_agent_status_with_wrong_session_id_is_ignored_and_errors(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_full_handshake(ws)
+    session = app.state.registry.get_session(session_id)
+    assert session.last_status is None
+
+    await ws.send_json({
+        "msg_type": "agent_status",
+        "node_id": "node_x",
+        "session_id": "ses_wrong",
+        "timestamp_utc": "2026-01-01T00:00:05.000Z",
+        "cpu_usage_pct": 99,
+        "throttled": False,
+        "tx_bytes_per_sec": 0,
+        "queue_depth": 0,
+        "queue_fill_pct": 0,
+        "drops": {"local_throttle": 0, "queue_overflow": 0, "server_rejected": 0},
+    })
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is False
+    assert session.last_status is None  # no mutation
+    await ws.close()
+
+
+async def test_reconfig_with_wrong_session_id_is_ignored_and_errors(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_full_handshake(ws)
+    session = app.state.registry.get_session(session_id)
+    assert session.config_version == 1
+
+    bad_cfg = dict(_stream_config_msg("ses_wrong"))
+    await ws.send_json(bad_cfg)
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is False
+    assert session.config_version == 1  # no mutation
+    await ws.close()
+
+
+async def test_mid_session_node_id_mismatch_is_ignored_and_errors(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_full_handshake(ws)
+    session = app.state.registry.get_session(session_id)
+    before = session.last_heartbeat_at
+
+    await ws.send_json({
+        "msg_type": "heartbeat",
+        "node_id": "impostor_node",
+        "session_id": session_id,
+        "timestamp_utc": "2026-01-01T00:00:05.000Z",
+    })
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is False
+    assert session.last_heartbeat_at == before  # no mutation
+    await ws.close()

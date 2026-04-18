@@ -43,6 +43,18 @@ async def _send_fatal(websocket: WebSocket, session_id: str, code: str, message:
     await websocket.close()
 
 
+def _check_node_id(actual: str, expected: str) -> str | None:
+    if actual != expected:
+        return f"node_id mismatch: expected {expected!r}"
+    return None
+
+
+def _check_session_id(actual: str, expected: str) -> str | None:
+    if actual != expected:
+        return "session_id does not match this connection"
+    return None
+
+
 @router.websocket("/ws/agent")
 async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> None:
     # --- Bearer auth at HTTP Upgrade (before accept) ---
@@ -98,6 +110,10 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             )
             return
 
+        if err := _check_node_id(msg.node_id, agent.stable_node_id):
+            await _send_fatal(websocket, session_id, "INVALID_FRAME", err)
+            return
+
         await websocket.send_text(encode_connect_ack(session_id))
 
         # ---- expect: stream_config ----
@@ -110,6 +126,10 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
 
         if not isinstance(msg, StreamConfigMsg):
             await _send_fatal(websocket, session_id, "INVALID_FRAME", "expected stream_config")
+            return
+
+        if err := _check_session_id(msg.session_id, session_id):
+            await _send_fatal(websocket, session_id, "INVALID_FRAME", err)
             return
 
         config_version = 1
@@ -141,6 +161,15 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     await websocket.close()
                     return
                 continue
+
+            if isinstance(msg, (HeartbeatMsg, AgentStatusMsg, StreamConfigMsg, SpectrumFrameMsg)):
+                err = _check_node_id(msg.node_id, agent.stable_node_id) or \
+                      _check_session_id(msg.session_id, session_id)
+                if err:
+                    await websocket.send_text(
+                        encode_error(session_id, "INVALID_FRAME", err, fatal=False)
+                    )
+                    continue
 
             if isinstance(msg, HeartbeatMsg):
                 registry.update_heartbeat(session_id)
