@@ -16,7 +16,7 @@ This document tracks which implementation phases are done, in-progress, or pendi
 | 2 | Browser auth | **Done** |
 | 3 | Agent + token CRUD API | **Done** |
 | 4 | Runtime session registry | **Done** |
-| 5 | Agent WebSocket + handshake | Pending |
+| 5 | Agent WebSocket + handshake | **Done** |
 | 6 | Spectrum frame ingestion | Pending |
 | 7 | Viewer WebSocket + fanout | Pending |
 | 8 | Contract freeze | Pending |
@@ -108,18 +108,26 @@ This document tracks which implementation phases are done, in-progress, or pendi
 
 ---
 
-## Phase 5 — Agent WebSocket + handshake
+## Phase 5 — Agent WebSocket + handshake ✓
 
 **Goal:** Authenticated agent connects and completes protocol handshake.
 
-### Plan
-- `app/ws_agent.py` — `/ws/agent` endpoint
-- Read `Authorization: Bearer` from upgrade, hash and verify against DB
-- Create runtime session, issue `X-Session-Id` header
-- Enforce protocol order: `connect` → `connect_ack` → `stream_config` → `stream_config_ack`
-- `protocol/codec.py` — decode/encode server-side wire messages
-- `protocol/validators.py` — field and ordering validation
-- Tests: invalid token rejected, valid handshake completes, protocol violations return error
+### What exists
+
+| File | Purpose |
+|------|---------|
+| `protocol/codec.py` | `decode_message`, encode helpers (`encode_connect_ack`, `encode_stream_config_ack`, `encode_error`, `encode_disconnect`), `ProtocolError` |
+| `app/ws_agent.py` | `/ws/agent` WebSocket endpoint — Bearer auth (SHA-256 hash lookup), `X-Session-Id` header, handshake order enforcement, frame loop |
+| `app/api.py` | `SessionRegistry` created in lifespan, wired into `app.state.registry`; `ws_router` included |
+| `storage/repositories/agents.py` | Added `get_agent_by_id_unscoped` for token-based auth (no user_id required) |
+| `tests/unit/test_ws_agent.py` | 16 tests: auth failures (401), handshake violations (PROTOCOL_MISMATCH, UNSUPPORTED_ENCODING, ordering), full handshake, registry registration/deregistration, heartbeat, re-config, agent_status, spectrum_frame |
+
+### Key constraints upheld
+- `AUTH_FAILED` is HTTP 401 (via `websocket.http.response.start`) — never a WS message
+- `PROTOCOL_MISMATCH` and `UNSUPPORTED_ENCODING` are fatal WS errors
+- Exactly one `LiveAgentSession` per agent (enforced by `SessionRegistry`)
+- Session is removed from registry on disconnect (via `finally` block)
+- Test client is a lightweight ASGI WS helper (same event loop, same in-memory SQLite — no TCP, no threads)
 
 ---
 

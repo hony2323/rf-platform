@@ -26,6 +26,11 @@ async def get_agents_for_user(db: AsyncSession, user_id: str) -> list[Agent]:
     return list(result.scalars().all())
 
 
+async def get_agent_by_id_unscoped(db: AsyncSession, agent_id: str) -> Agent | None:
+    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    return result.scalar_one_or_none()
+
+
 async def get_agent_by_node_id(db: AsyncSession, stable_node_id: str) -> Agent | None:
     result = await db.execute(select(Agent).where(Agent.stable_node_id == stable_node_id))
     return result.scalar_one_or_none()
