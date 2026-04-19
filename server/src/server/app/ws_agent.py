@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import uuid
@@ -136,6 +137,12 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             await _send_fatal(websocket, session_id, "INVALID_FRAME", err)
             return
 
+        try:
+            bin_count = int(msg.rf["bin_count"])
+        except (KeyError, TypeError, ValueError):
+            await _send_fatal(websocket, session_id, "INVALID_FRAME", "stream_config missing rf.bin_count")
+            return
+
         config_version = 1
         stream_id = msg.stream_id
 
@@ -145,6 +152,7 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             user_id=str(agent.user_id),
             stream_id=stream_id,
             config_version=config_version,
+            bin_count=bin_count,
         )
 
         await websocket.send_text(
@@ -177,14 +185,40 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             elif isinstance(msg, AgentStatusMsg):
                 registry.update_status(session_id, json.dumps(msg.raw))
             elif isinstance(msg, StreamConfigMsg):
+                try:
+                    new_bin_count = int(msg.rf["bin_count"])
+                except (KeyError, TypeError, ValueError):
+                    await websocket.send_text(
+                        encode_error(session_id, "INVALID_FRAME", "stream_config missing rf.bin_count", fatal=False)
+                    )
+                    continue
                 config_version += 1
                 registry.update_config_version(session_id, config_version)
                 session.stream_id = msg.stream_id
+                session.bin_count = new_bin_count
                 await websocket.send_text(
                     encode_stream_config_ack(session_id, msg.stream_id, config_version)
                 )
             elif isinstance(msg, SpectrumFrameMsg):
-                pass  # Phase 6: payload validation and ingestion — currently accepted but not validated
+                try:
+                    payload_bytes = base64.b64decode(msg.payload, validate=True)
+                except Exception:
+                    await websocket.send_text(encode_error(
+                        session_id, "INVALID_FRAME", "payload is not valid base64",
+                        fatal=False, stream_id=msg.stream_id,
+                        config_version=msg.config_version, frame_index=msg.frame_index,
+                    ))
+                    continue
+                expected_len = session.bin_count * 4
+                if len(payload_bytes) != expected_len:
+                    await websocket.send_text(encode_error(
+                        session_id, "INVALID_FRAME",
+                        f"payload length {len(payload_bytes)} != {expected_len}",
+                        fatal=False, stream_id=msg.stream_id,
+                        config_version=msg.config_version, frame_index=msg.frame_index,
+                    ))
+                    continue
+                await session.frame_queue.put(msg)
             else:
                 await websocket.send_text(
                     encode_error(session_id, "INVALID_FRAME", "unexpected message type", fatal=False)

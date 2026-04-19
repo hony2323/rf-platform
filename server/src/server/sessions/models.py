@@ -18,6 +18,8 @@ class LiveAgentSession:
     last_heartbeat_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_status: str | None = None
 
+    bin_count: int = 0
+
     # Outbound frame queue — viewers drain this via fanout
     frame_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
 

@@ -17,7 +17,7 @@ This document tracks which implementation phases are done, in-progress, or pendi
 | 3 | Agent + token CRUD API | **Done** |
 | 4 | Runtime session registry | **Done** |
 | 5 | Agent WebSocket + handshake | **Done** |
-| 6 | Spectrum frame ingestion | Pending |
+| 6 | Spectrum frame ingestion | **Done** |
 | 7 | Viewer WebSocket + fanout | Pending |
 | 8 | Contract freeze | Pending |
 | 9 | Operational polish | Pending |
@@ -131,16 +131,23 @@ This document tracks which implementation phases are done, in-progress, or pendi
 
 ---
 
-## Phase 6 — Spectrum frame ingestion
+## Phase 6 — Spectrum frame ingestion ✓
 
 **Goal:** Server accepts valid frames and rejects invalid ones.
 
-### Plan
-- Decode `spectrum_frame`, validate payload length (`bin_count * 4`)
-- Handle `heartbeat` → update `last_heartbeat_at` in session
-- Handle `agent_status` → cache in session
-- Emit `error` on invalid messages without killing process
-- Tests: valid/invalid frames, heartbeat freshness, status caching
+### What exists
+
+| File | Purpose |
+|------|---------|
+| `sessions/models.py` | Added `bin_count: int = 0` to `LiveAgentSession` |
+| `app/ws_agent.py` | Extracts `bin_count` from `stream_config.rf`, validates `spectrum_frame` payload length (`bin_count × 4`), enqueues valid frames on `session.frame_queue`; re-config updates `session.bin_count` |
+| `tests/unit/test_ws_agent.py` | 5 new tests: valid frame enqueued, payload too short, payload too long, invalid base64, reconfig updates bin_count |
+
+### Key constraints upheld
+- Invalid payload → nonfatal `INVALID_FRAME` with `stream_id`, `config_version`, `frame_index`; connection stays alive
+- Missing `rf.bin_count` in handshake stream_config → fatal `INVALID_FRAME`, connection closed
+- Valid frames put on `session.frame_queue` as `SpectrumFrameMsg` for Phase 7 fanout
+- Tests assert on decoded float values, never raw base64 bytes
 
 ---
 
