@@ -74,6 +74,17 @@ class SessionRegistry:
         session.config_version = config_version
         return True
 
+    def update_stream_config(
+        self, session_id: str, stream_id: str, bin_count: int, config_version: int
+    ) -> bool:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return False
+        session.stream_id = stream_id
+        session.bin_count = bin_count
+        session.config_version = config_version
+        return True
+
     def all_sessions(self) -> list[LiveAgentSession]:
         return list(self._sessions.values())
 

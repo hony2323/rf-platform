@@ -193,9 +193,7 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     )
                     continue
                 config_version += 1
-                registry.update_config_version(session_id, config_version)
-                session.stream_id = msg.stream_id
-                session.bin_count = new_bin_count
+                registry.update_stream_config(session_id, msg.stream_id, new_bin_count, config_version)
                 await websocket.send_text(
                     encode_stream_config_ack(session_id, msg.stream_id, config_version)
                 )
@@ -203,7 +201,8 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                 if msg.stream_id != session.stream_id or msg.config_version != session.config_version:
                     await websocket.send_text(encode_error(
                         session_id, "INVALID_FRAME",
-                        f"frame stream_id/config_version does not match active config",
+                        f"expected stream_id={session.stream_id}, config_version={session.config_version} "
+                        f"but got stream_id={msg.stream_id}, config_version={msg.config_version}",
                         fatal=False, stream_id=msg.stream_id,
                         config_version=msg.config_version, frame_index=msg.frame_index,
                     ))
