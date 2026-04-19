@@ -13,15 +13,12 @@ import sys
 
 
 async def _run(email: str, password: str, db_path: str) -> None:
-    import server.storage.db as db_module
     from server.auth.passwords import hash_password
-    from server.storage.db import init_db
+    from server.storage.db import get_session_factory, init_db
     from server.storage.repositories.users import create_user, get_user_by_email
-    from sqlalchemy.ext.asyncio import async_sessionmaker
 
     await init_db(db_path)
-    factory = async_sessionmaker(db_module._engine, expire_on_commit=False)
-    async with factory() as session:
+    async with get_session_factory()() as session:
         existing = await get_user_by_email(session, email)
         if existing is not None:
             print(f"User {email!r} already exists (id={existing.id}).", file=sys.stderr)

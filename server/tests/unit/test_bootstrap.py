@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import server.storage.db as db_module
 from server.app.bootstrap import _run
 from server.config.settings import load_settings
-from server.storage.db import init_db
+from server.storage.db import get_session_factory
 from server.storage.repositories.users import get_user_by_email
 
 
@@ -26,8 +25,7 @@ async def reset_db_globals():
 
 async def test_bootstrap_creates_user():
     await _run("admin@example.com", "secret", ":memory:")
-    factory = async_sessionmaker(db_module._engine, expire_on_commit=False)
-    async with factory() as session:
+    async with get_session_factory()() as session:
         user = await get_user_by_email(session, "admin@example.com")
     assert user is not None
     assert user.email == "admin@example.com"
@@ -44,8 +42,7 @@ async def test_bootstrap_duplicate_email_raises(capsys):
 
 async def test_bootstrap_hashes_password():
     await _run("admin@example.com", "secret", ":memory:")
-    factory = async_sessionmaker(db_module._engine, expire_on_commit=False)
-    async with factory() as session:
+    async with get_session_factory()() as session:
         user = await get_user_by_email(session, "admin@example.com")
     assert user.password_hash != "secret"
     assert len(user.password_hash) > 20
@@ -71,3 +68,15 @@ def test_settings_from_env(monkeypatch):
     assert s.port == 9000
     assert s.session_secret == "prod-secret"
     assert s.session_cookie_secure is True
+
+
+def test_settings_invalid_port(monkeypatch):
+    monkeypatch.setenv("RF_PORT", "not_a_number")
+    with pytest.raises(ValueError, match="RF_PORT must be an integer"):
+        load_settings()
+
+
+def test_settings_invalid_cookie_secure(monkeypatch):
+    monkeypatch.setenv("RF_SESSION_COOKIE_SECURE", "maybe")
+    with pytest.raises(ValueError, match="RF_SESSION_COOKIE_SECURE"):
+        load_settings()

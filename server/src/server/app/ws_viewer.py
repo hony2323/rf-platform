@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.app.auth_config import SESSION_COOKIE_NAME, SESSION_SECRET
 from server.app.deps import get_db
 from server.auth.browser_auth import read_session_cookie
 from server.protocol.codec import (
@@ -41,12 +40,13 @@ async def _close_with_error(websocket: WebSocket, code: str, message: str) -> No
 @router.websocket("/ws/viewer")
 async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> None:
     # --- Cookie auth at HTTP Upgrade (before accept) ---
-    cookie = websocket.cookies.get(SESSION_COOKIE_NAME)
+    settings = websocket.app.state.settings
+    cookie = websocket.cookies.get(settings.session_cookie_name)
     if cookie is None:
         await _deny(websocket, 401)
         return
 
-    user_id = read_session_cookie(cookie, SESSION_SECRET)
+    user_id = read_session_cookie(cookie, settings.session_secret)
     if user_id is None:
         await _deny(websocket, 401)
         return

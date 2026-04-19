@@ -15,11 +15,24 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    port_raw = os.getenv("RF_PORT", "8000")
+    try:
+        port = int(port_raw)
+    except ValueError:
+        raise ValueError(f"RF_PORT must be an integer, got {port_raw!r}") from None
+
+    secure_raw = os.getenv("RF_SESSION_COOKIE_SECURE", "")
+    if secure_raw and secure_raw.lower() not in ("0", "1", "true", "false", "yes", "no"):
+        raise ValueError(
+            f"RF_SESSION_COOKIE_SECURE must be 1/true/yes or 0/false/no, got {secure_raw!r}"
+        )
+    secure = secure_raw.lower() in ("1", "true", "yes")
+
     return Settings(
         db_path=os.getenv("RF_DB_PATH", "rf_platform.db"),
         host=os.getenv("RF_HOST", "0.0.0.0"),
-        port=int(os.getenv("RF_PORT", "8000")),
+        port=port,
         session_secret=os.getenv("RF_SESSION_SECRET", "dev-secret-change-in-production"),
         session_cookie_name=os.getenv("RF_SESSION_COOKIE_NAME", "session"),
-        session_cookie_secure=os.getenv("RF_SESSION_COOKIE_SECURE", "").lower() in ("1", "true", "yes"),
+        session_cookie_secure=secure,
     )

@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response, Cookie
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.app.auth_config import SESSION_COOKIE_NAME, SESSION_COOKIE_SECURE, SESSION_SECRET
-from server.app.deps import get_db, get_current_user
-from server.auth.passwords import verify_password
+from server.app.deps import get_current_user, get_db
 from server.auth.browser_auth import make_session_cookie
-from server.storage.repositories import users as users_repo
+from server.auth.passwords import verify_password
 from server.storage.models import User
+from server.storage.repositories import users as users_repo
 
 router = APIRouter()
 
@@ -27,25 +26,32 @@ class UserResponse(BaseModel):
 
 
 @router.post("/auth/login")
-async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+async def login(
+    body: LoginRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    settings = request.app.state.settings
     user = await users_repo.get_user_by_email(db, body.email)
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    cookie = make_session_cookie(user.id, SESSION_SECRET)
+    cookie = make_session_cookie(user.id, settings.session_secret)
     response.set_cookie(
-        SESSION_COOKIE_NAME,
+        settings.session_cookie_name,
         cookie,
         httponly=True,
         samesite="lax",
         path="/",
-        secure=SESSION_COOKIE_SECURE,
+        secure=settings.session_cookie_secure,
     )
     return UserResponse.model_validate(user)
 
 
 @router.post("/auth/logout", status_code=204)
-async def logout(response: Response):
-    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+async def logout(request: Request, response: Response):
+    settings = request.app.state.settings
+    response.delete_cookie(settings.session_cookie_name, path="/")
 
 
 @router.get("/me", response_model=UserResponse)

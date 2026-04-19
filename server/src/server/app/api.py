@@ -14,7 +14,8 @@ from server.storage.db import init_db
 
 
 def create_app(db_path: str | None = None) -> FastAPI:
-    _db_path = db_path if db_path is not None else load_settings().db_path
+    settings = load_settings()
+    _db_path = db_path if db_path is not None else settings.db_path
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -23,6 +24,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
         yield
 
     app = FastAPI(title="RF Platform", version="0.3.0", lifespan=lifespan)
+    app.state.settings = settings  # available immediately, before lifespan runs
     app.include_router(http_router)
     app.include_router(agent_router)
     app.include_router(ws_router)
