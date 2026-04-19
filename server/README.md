@@ -12,7 +12,7 @@ pip install -e ".[dev]"
 python -m server.app.bootstrap --email admin@example.com --password secret
 
 # Start the server
-uvicorn server.app.api:app --reload
+uvicorn "server.app.api:create_app" --factory --reload
 ```
 
 The server listens on `http://0.0.0.0:8000` by default. Interactive API docs are at `http://localhost:8000/docs`.
@@ -84,7 +84,7 @@ pytest tests/unit/test_ws_agent.py
 The server logs session lifecycle events at `INFO` and unexpected errors at `ERROR` via standard Python `logging`. To see them during development:
 
 ```bash
-uvicorn server.app.api:app --reload --log-level info
+uvicorn "server.app.api:create_app" --factory --reload --log-level info
 ```
 
 Key log messages:

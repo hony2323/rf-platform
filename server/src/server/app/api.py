@@ -30,7 +30,3 @@ def create_app(db_path: str | None = None) -> FastAPI:
     app.include_router(ws_router)
     app.include_router(viewer_router)
     return app
-
-
-# ASGI entry point for `uvicorn server.app.api:app`
-app = create_app()
