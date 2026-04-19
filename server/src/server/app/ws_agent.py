@@ -200,6 +200,14 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     encode_stream_config_ack(session_id, msg.stream_id, config_version)
                 )
             elif isinstance(msg, SpectrumFrameMsg):
+                if msg.stream_id != session.stream_id or msg.config_version != session.config_version:
+                    await websocket.send_text(encode_error(
+                        session_id, "INVALID_FRAME",
+                        f"frame stream_id/config_version does not match active config",
+                        fatal=False, stream_id=msg.stream_id,
+                        config_version=msg.config_version, frame_index=msg.frame_index,
+                    ))
+                    continue
                 try:
                     payload_bytes = base64.b64decode(msg.payload, validate=True)
                 except Exception:
