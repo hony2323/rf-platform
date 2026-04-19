@@ -134,6 +134,19 @@ Key metrics explained:
 | `scripts/run_demo.py` | Live demo with rolling metrics |
 | `scripts/fake_server.py` | Real TCP WebSocket server implementing the v0.3 handshake — used by integration tests and the demo |
 | `scripts/reduce_sigmf_file_size.py` | Trim large SigMF recordings for CI fixtures |
+| `scripts/gcmsg.ps1` | Ask Codex for a commit message based on the current staged diff |
+
+Generate a commit message from staged changes:
+
+```powershell
+.\gcmsg.bat
+```
+
+Include a short body too:
+
+```powershell
+.\gcmsg.bat -WithBody
+```
 
 ## Wire protocol
 

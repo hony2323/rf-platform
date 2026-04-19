@@ -19,7 +19,7 @@ This document tracks which implementation phases are done, in-progress, or pendi
 | 5 | Agent WebSocket + handshake | **Done** |
 | 6 | Spectrum frame ingestion | **Done** |
 | 7 | Viewer WebSocket + fanout | **Done** |
-| 8 | Contract freeze | Pending |
+| 8 | Contract freeze | **Done** |
 | 9 | Operational polish | Pending |
 
 ---
@@ -176,14 +176,22 @@ This document tracks which implementation phases are done, in-progress, or pendi
 
 ---
 
-## Phase 8 — Contract freeze
+## Phase 8 — Contract freeze ✓
 
 **Goal:** Backend API shapes are frozen and documented for web app consumption.
 
-### Plan
-- Freeze JSON shapes: `GET /agents`, `GET /agents/{id}/status`, viewer WS subscribe + outbound events
-- Document shapes in markdown
-- One end-to-end test: fake agent + fake viewer, assert viewer gets config then frame
+### What exists
+
+| File | Purpose |
+|------|---------|
+| `app/agent_routes.py` | Added `GET /agents/{id}/status` — returns live session state from registry (online/offline, session_id, last_heartbeat_at, last_status) |
+| `docs/server_api_contract.md` | Frozen JSON shapes: all HTTP endpoints + viewer WS subscribe/ack/stream_config/spectrum_frame/error |
+| `tests/unit/test_e2e.py` | End-to-end vertical slice: agent handshake → viewer subscribe → frame delivery → agent disconnect → status offline |
+
+### Key constraints upheld
+- Status endpoint reads from in-memory registry only; DB is not hit for live state
+- `last_status` is deserialized from JSON string before returning (not raw string)
+- Contract doc covers all viewer WS error codes and their semantics
 
 ---
 

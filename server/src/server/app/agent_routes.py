@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +30,14 @@ class AgentResponse(BaseModel):
     stable_node_id: str
 
     model_config = {"from_attributes": True}
+
+
+class AgentStatusResponse(BaseModel):
+    agent_id: str
+    online: bool
+    session_id: str | None = None
+    last_heartbeat_at: str | None = None
+    last_status: Any | None = None
 
 
 class TokenCreate(BaseModel):
@@ -83,6 +93,28 @@ async def get_agent(
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
     return agent
+
+
+@router.get("/{agent_id}/status", response_model=AgentStatusResponse)
+async def get_agent_status(
+    agent_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await agents_repo.get_agent_by_id(db, agent_id, current_user.id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    session = request.app.state.registry.get_session_by_agent(agent_id)
+    if session is None:
+        return AgentStatusResponse(agent_id=agent_id, online=False)
+    return AgentStatusResponse(
+        agent_id=agent_id,
+        online=True,
+        session_id=session.session_id,
+        last_heartbeat_at=session.last_heartbeat_at.isoformat(),
+        last_status=json.loads(session.last_status) if session.last_status else None,
+    )
 
 
 @router.get("/{agent_id}/tokens", response_model=list[TokenResponse])
