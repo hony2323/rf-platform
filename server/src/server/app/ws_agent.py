@@ -24,6 +24,7 @@ from server.protocol.codec import (
     encode_error,
     encode_stream_config_ack,
     encode_viewer_spectrum_frame,
+    encode_viewer_stream_config,
 )
 from server.sessions.models import LiveAgentSession
 from server.storage.repositories.agent_tokens import get_active_token_by_hash
@@ -214,6 +215,12 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                 registry.update_stream_config(
                     session_id, msg.stream_id, new_bin_count, config_version, config_cache
                 )
+                viewer_cfg = encode_viewer_stream_config(str(agent.id), session_id, config_cache)
+                for viewer in registry.get_viewers_for_session(session_id):
+                    try:
+                        viewer.send_queue.put_nowait(viewer_cfg)
+                    except asyncio.QueueFull:
+                        pass
                 await websocket.send_text(
                     encode_stream_config_ack(session_id, msg.stream_id, config_version)
                 )

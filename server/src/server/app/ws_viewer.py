@@ -107,12 +107,21 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
             )
 
         # ---- drain loop ----
-        # Wait on either an outbound message (viewer.send_queue) or client disconnect
-        # (websocket.receive). Use asyncio.wait so neither side blocks the other.
+        # Race three signals: outbound message, client disconnect, session eviction.
         recv_task = asyncio.create_task(websocket.receive())
+        close_task = asyncio.create_task(viewer.closed.wait())
         while True:
             send_task = asyncio.create_task(viewer.send_queue.get())
-            done, _ = await asyncio.wait({recv_task, send_task}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                {recv_task, send_task, close_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if close_task in done:
+                send_task.cancel()
+                recv_task.cancel()
+                await asyncio.gather(send_task, recv_task, return_exceptions=True)
+                await _close_with_error(websocket, "AGENT_OFFLINE", "agent session ended")
+                return
             if recv_task in done:
                 send_task.cancel()
                 await asyncio.gather(send_task, return_exceptions=True)
@@ -122,7 +131,8 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
                 await websocket.send_text(text)
             except Exception:
                 recv_task.cancel()
-                await asyncio.gather(recv_task, return_exceptions=True)
+                close_task.cancel()
+                await asyncio.gather(recv_task, close_task, return_exceptions=True)
                 break
 
     except WebSocketDisconnect:

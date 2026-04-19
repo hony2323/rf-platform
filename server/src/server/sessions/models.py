@@ -38,4 +38,5 @@ class ViewerSubscription:
     agent_id: str
     session_id: str  # the LiveAgentSession being watched
     send_queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=_VIEWER_QUEUE_SIZE))
+    closed: asyncio.Event = field(default_factory=asyncio.Event)
     subscribed_at: datetime = field(default_factory=lambda: datetime.now(UTC))

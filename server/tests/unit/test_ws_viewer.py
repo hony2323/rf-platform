@@ -368,6 +368,106 @@ async def test_subscribe_offline_agent_gets_agent_offline_and_closed(app, db_sta
         await viewer.recv_json()
 
 
+async def test_viewer_receives_stream_config_on_reconfig(app, db_state):
+    BIN_COUNT = 4
+    agent = _agent_ws(app)
+    session_id = await _do_agent_handshake(agent, bin_count=BIN_COUNT)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # initial stream_config (config_version=1)
+
+    # Agent reconfigures with a new bin_count
+    new_bin_count = 8
+    await agent.send_json(_stream_config_msg(session_id, bin_count=new_bin_count))
+    await agent.recv_json()  # stream_config_ack
+
+    new_cfg = await viewer.recv_json()
+    assert new_cfg["msg_type"] == "stream_config"
+    assert new_cfg["config_version"] == 2
+    assert new_cfg["rf"]["bin_count"] == new_bin_count
+    assert new_cfg["agent_id"] == db_state["agent_id"]
+
+    await viewer.close()
+    await agent.close()
+
+
+async def test_viewer_receives_config_before_new_version_frame(app, db_state):
+    BIN_COUNT = 4
+    agent = _agent_ws(app)
+    session_id = await _do_agent_handshake(agent, bin_count=BIN_COUNT)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # initial stream_config
+
+    new_bin_count = 8
+    await agent.send_json(_stream_config_msg(session_id, bin_count=new_bin_count))
+    await agent.recv_json()  # stream_config_ack
+    payload = _make_payload(new_bin_count)
+    await agent.send_json(_spectrum_frame_msg(session_id, config_version=2, frame_index=0, payload=payload))
+
+    # Viewer must receive the reconfig stream_config before the new-version frame
+    msg1 = await viewer.recv_json()
+    msg2 = await viewer.recv_json()
+    assert msg1["msg_type"] == "stream_config"
+    assert msg1["config_version"] == 2
+    assert msg2["msg_type"] == "spectrum_frame"
+    assert msg2["config_version"] == 2
+
+    await viewer.close()
+    await agent.close()
+
+
+async def test_viewer_closes_when_agent_disconnects(app, db_state):
+    agent = _agent_ws(app)
+    await _do_agent_handshake(agent)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # stream_config
+
+    await agent.close()
+
+    err = await viewer.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "AGENT_OFFLINE"
+    with pytest.raises(WebSocketDisconnect):
+        await viewer.recv_json()
+
+
+async def test_viewer_closes_when_session_replaced(app, db_state):
+    # Agent connects first time; viewer subscribes to that session
+    agent1 = _agent_ws(app)
+    session_id1 = await _do_agent_handshake(agent1)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # stream_config
+    assert len(app.state.registry.get_viewers_for_session(session_id1)) == 1
+
+    # Agent reconnects — new session evicts viewers of the old session
+    agent2 = _agent_ws(app)
+    await _do_agent_handshake(agent2)
+
+    err = await viewer.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "AGENT_OFFLINE"
+    with pytest.raises(WebSocketDisconnect):
+        await viewer.recv_json()
+
+    await agent1.close()
+    await agent2.close()
+
+
 async def test_slow_viewer_full_queue_does_not_block_agent(app, db_state):
     BIN_COUNT = 4
     agent = _agent_ws(app)

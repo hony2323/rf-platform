@@ -124,4 +124,5 @@ class SessionRegistry:
             sid for sid, v in self._viewers.items() if v.session_id == session_id
         ]
         for sid in to_remove:
-            del self._viewers[sid]
+            viewer = self._viewers.pop(sid)
+            viewer.closed.set()
