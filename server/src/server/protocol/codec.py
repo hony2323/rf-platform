@@ -174,3 +174,51 @@ def encode_disconnect(session_id: str, reason: str) -> str:
         "session_id": session_id,
         "reason": reason,
     })
+
+
+# ---------------------------------------------------------------------------
+# Viewer outbound encoders
+# ---------------------------------------------------------------------------
+
+
+def encode_viewer_subscribe_ack(agent_id: str, session_id: str, stream_id: str) -> str:
+    return json.dumps({
+        "msg_type": "subscribe_ack",
+        "agent_id": agent_id,
+        "session_id": session_id,
+        "stream_id": stream_id,
+        "status": "ok",
+    })
+
+
+def encode_viewer_stream_config(agent_id: str, session_id: str, config: dict) -> str:
+    return json.dumps({
+        "msg_type": "stream_config",
+        "agent_id": agent_id,
+        "session_id": session_id,
+        "stream_id": config["stream_id"],
+        "config_version": config["config_version"],
+        "rf": config["rf"],
+        "fft_semantics": config["fft_semantics"],
+    })
+
+
+def encode_viewer_spectrum_frame(agent_id: str, session_id: str, msg: SpectrumFrameMsg) -> str:
+    return json.dumps({
+        "msg_type": "spectrum_frame",
+        "agent_id": agent_id,
+        "session_id": session_id,
+        "stream_id": msg.stream_id,
+        "config_version": msg.config_version,
+        "frame_index": msg.frame_index,
+        "timestamp_utc": msg.timestamp_utc,
+        "data": {"payload": msg.payload},
+    })
+
+
+def encode_viewer_error(code: str, message: str) -> str:
+    return json.dumps({
+        "msg_type": "error",
+        "code": code,
+        "message": message,
+    })

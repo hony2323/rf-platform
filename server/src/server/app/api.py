@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from server.app.agent_routes import router as agent_router
 from server.app.http_routes import router as http_router
 from server.app.ws_agent import router as ws_router
+from server.app.ws_viewer import router as viewer_router
 from server.sessions.registry import SessionRegistry
 from server.storage.db import init_db
 
@@ -22,4 +23,5 @@ def create_app(db_path: str = "rf_platform.db") -> FastAPI:
     app.include_router(http_router)
     app.include_router(agent_router)
     app.include_router(ws_router)
+    app.include_router(viewer_router)
     return app

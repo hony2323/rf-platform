@@ -18,7 +18,7 @@ This document tracks which implementation phases are done, in-progress, or pendi
 | 4 | Runtime session registry | **Done** |
 | 5 | Agent WebSocket + handshake | **Done** |
 | 6 | Spectrum frame ingestion | **Done** |
-| 7 | Viewer WebSocket + fanout | Pending |
+| 7 | Viewer WebSocket + fanout | **Done** |
 | 8 | Contract freeze | Pending |
 | 9 | Operational polish | Pending |
 
@@ -151,17 +151,28 @@ This document tracks which implementation phases are done, in-progress, or pendi
 
 ---
 
-## Phase 7 — Viewer WebSocket + fanout
+## Phase 7 — Viewer WebSocket + fanout ✓
 
 **Goal:** Browser subscribes to its own agent and receives live frames.
 
-### Plan
-- `app/ws_viewer.py` — `/ws/viewer` endpoint
-- Authenticate browser user, accept subscribe message with `agent_id`
-- Ownership check: `viewer.user_id == session.user_id`
-- `relay/broadcaster.py` — push config/status/frame to viewers, dead-viewer cleanup
-- `relay/subscriptions.py` — viewer attach/detach logic
-- Tests: ownership block, config-first delivery, live frame relay
+### What exists
+
+| File | Purpose |
+|------|---------|
+| `sessions/models.py` | Added `last_stream_config: dict \| None`, `last_config_version: int \| None` to `LiveAgentSession`; bounded `ViewerSubscription.send_queue` to 64 |
+| `sessions/registry.py` | `update_stream_config` extended to also cache `last_stream_config` / `last_config_version` |
+| `protocol/codec.py` | Viewer outbound encoders: `encode_viewer_subscribe_ack`, `encode_viewer_stream_config`, `encode_viewer_spectrum_frame`, `encode_viewer_error` |
+| `app/ws_agent.py` | Stores config cache on handshake and reconfig; fan-out to viewer `send_queue`s after each valid frame (put_nowait, drop on QueueFull) |
+| `app/ws_viewer.py` | `/ws/viewer` — cookie auth (pre-accept), subscribe → ownership check → AGENT_OFFLINE if offline → subscribe_ack + stream_config delivery → drain loop |
+| `app/api.py` | Viewer router included |
+| `tests/unit/test_ws_viewer.py` | 7 tests: online subscribe, ack+config delivery, single viewer frame, two-viewer fanout, unowned FORBIDDEN, offline AGENT_OFFLINE, slow viewer drop |
+
+### Key constraints upheld
+- Auth is cookie-based (browser user); unauthed requests get HTTP 401 before WS accept
+- Ownership verified via `get_agent_by_id(db, agent_id, user_id)`; no subscription without ownership
+- `AGENT_OFFLINE` returned if agent has no active session; connection closed immediately
+- Config-first: `stream_config` sent to viewer immediately after `subscribe_ack`
+- Fan-out is synchronous in agent ingestion path; full viewer queues drop frames silently (never block agent)
 
 ---
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -22,6 +23,7 @@ from server.protocol.codec import (
     encode_connect_ack,
     encode_error,
     encode_stream_config_ack,
+    encode_viewer_spectrum_frame,
 )
 from server.sessions.models import LiveAgentSession
 from server.storage.repositories.agent_tokens import get_active_token_by_hash
@@ -145,6 +147,13 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
 
         config_version = 1
         stream_id = msg.stream_id
+        config_cache = {
+            "session_id": session_id,
+            "stream_id": msg.stream_id,
+            "rf": msg.rf,
+            "fft_semantics": msg.fft_semantics,
+            "config_version": config_version,
+        }
 
         session = LiveAgentSession(
             session_id=session_id,
@@ -153,6 +162,8 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             stream_id=stream_id,
             config_version=config_version,
             bin_count=bin_count,
+            last_stream_config=config_cache,
+            last_config_version=config_version,
         )
 
         await websocket.send_text(
@@ -193,7 +204,16 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     )
                     continue
                 config_version += 1
-                registry.update_stream_config(session_id, msg.stream_id, new_bin_count, config_version)
+                config_cache = {
+                    "session_id": session_id,
+                    "stream_id": msg.stream_id,
+                    "rf": msg.rf,
+                    "fft_semantics": msg.fft_semantics,
+                    "config_version": config_version,
+                }
+                registry.update_stream_config(
+                    session_id, msg.stream_id, new_bin_count, config_version, config_cache
+                )
                 await websocket.send_text(
                     encode_stream_config_ack(session_id, msg.stream_id, config_version)
                 )
@@ -226,6 +246,12 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     ))
                     continue
                 await session.frame_queue.put(msg)
+                outbound = encode_viewer_spectrum_frame(str(agent.id), session_id, msg)
+                for viewer in registry.get_viewers_for_session(session_id):
+                    try:
+                        viewer.send_queue.put_nowait(outbound)
+                    except asyncio.QueueFull:
+                        pass
             else:
                 await websocket.send_text(
                     encode_error(session_id, "INVALID_FRAME", "unexpected message type", fatal=False)
