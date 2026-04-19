@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import server.storage.db as db_module
 from server.app.api import create_app
-from server.app.auth_config import SESSION_COOKIE_NAME, SESSION_SECRET
 from server.auth.browser_auth import make_session_cookie
 from server.auth.passwords import hash_password
 from server.storage.repositories import agents as agents_repo
@@ -163,8 +162,9 @@ def _agent_ws(app) -> _WS:
 
 
 def _viewer_ws(app, user_id: str) -> _WS:
-    cookie = make_session_cookie(user_id, SESSION_SECRET)
-    return _WS(app, "/ws/viewer", headers={"cookie": f"{SESSION_COOKIE_NAME}={cookie}"})
+    settings = app.state.settings
+    cookie = make_session_cookie(user_id, settings.session_secret)
+    return _WS(app, "/ws/viewer", headers={"cookie": f"{settings.session_cookie_name}={cookie}"})
 
 
 def _connect_msg() -> dict:
