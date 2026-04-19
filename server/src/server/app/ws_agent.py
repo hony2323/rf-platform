@@ -4,9 +4,12 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.deps import get_db
@@ -77,6 +80,8 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
     if agent is None:
         await _deny(websocket, 401)
         return
+
+    logger.info("agent connecting agent_id=%s node_id=%s", agent.id, agent.stable_node_id)
 
     # --- Accept and issue session_id ---
     session_id = "ses_" + uuid.uuid4().hex
@@ -171,6 +176,7 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             encode_stream_config_ack(session_id, stream_id, config_version)
         )
         registry.add_session(session)
+        logger.info("agent session started session_id=%s agent_id=%s", session_id, agent.id)
 
         # ---- frame / heartbeat / status loop ----
         while True:
@@ -267,6 +273,7 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
     except WebSocketDisconnect:
         pass
     except Exception:
+        logger.exception("agent unexpected error session_id=%s agent_id=%s", session_id, getattr(agent, "id", "unknown"))
         try:
             await websocket.send_text(
                 encode_error(session_id, "INTERNAL_ERROR", "server fault", fatal=True)
@@ -277,3 +284,4 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
     finally:
         if session is not None:
             registry.remove_session(session_id)
+            logger.info("agent session ended session_id=%s agent_id=%s", session_id, agent.id)

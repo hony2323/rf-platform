@@ -20,7 +20,7 @@ This document tracks which implementation phases are done, in-progress, or pendi
 | 6 | Spectrum frame ingestion | **Done** |
 | 7 | Viewer WebSocket + fanout | **Done** |
 | 8 | Contract freeze | **Done** |
-| 9 | Operational polish | Pending |
+| 9 | Operational polish | **Done** |
 
 ---
 
@@ -195,13 +195,24 @@ This document tracks which implementation phases are done, in-progress, or pendi
 
 ---
 
-## Phase 9 — Operational polish
+## Phase 9 — Operational polish ✓
 
 **Goal:** Local demo and iteration are sane.
 
-### Plan
-- Settings object: SQLite path, server port, etc.
-- Bootstrap command for creating a test user
-- Structured logging: connect/disconnect/errors
-- Dev README
-- Smoke tests
+### What exists
+
+| File | Purpose |
+|---|---|
+| `config/settings.py` | `Settings` dataclass + `load_settings()` — reads `RF_DB_PATH`, `RF_HOST`, `RF_PORT`, `RF_SESSION_SECRET`, `RF_SESSION_COOKIE_NAME`, `RF_SESSION_COOKIE_SECURE` from env with safe defaults |
+| `app/auth_config.py` | Updated to read `RF_SESSION_SECRET` / `RF_SESSION_COOKIE_NAME` / `RF_SESSION_COOKIE_SECURE` from env |
+| `app/api.py` | `create_app()` now accepts `db_path=None`; falls back to `settings.db_path`; exposes top-level `app` for `uvicorn server.app.api:app` |
+| `app/bootstrap.py` | `python -m server.app.bootstrap --email … --password …` — creates user, exits 1 if duplicate |
+| `app/ws_agent.py` | `INFO` logs at connect, session start, session end; `ERROR` on unexpected exception |
+| `app/ws_viewer.py` | `INFO` logs at subscribe and unsubscribe; `ERROR` on unexpected exception |
+| `server/README.md` | Dev setup: install, bootstrap, run, config table, API surface, test commands, log format |
+| `tests/unit/test_bootstrap.py` | 5 smoke tests: bootstrap creates user, duplicate → exit 1, password is hashed, settings defaults, settings from env |
+
+### Key constraints upheld
+- Tests pass explicit `:memory:` to `create_app()` — settings are not consulted in tests
+- `SESSION_SECRET` default is labeled "dev-secret-change-in-production" in docs
+- Bootstrap is idempotent-safe: duplicate email exits non-zero rather than silently overwriting

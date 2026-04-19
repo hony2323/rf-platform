@@ -4,21 +4,19 @@ Monorepo for live RF spectrum streaming. SDR agents on edge devices push FFT fra
 
 ## Status
 
-The agent is the primary active component. The server and web frontend are scaffolded but not yet implemented.
-
 | Component | State |
 |---|---|
 | `agent/` | Complete — source, processing, session, transport, telemetry, runner |
-| `server/` | Scaffold only — modules defined, no implementation |
-| `web/` | Scaffold only |
+| `server/` | MVP complete — auth, agent/token CRUD, agent WS, viewer WS, fanout, API contract frozen |
+| `web/` | Not yet started |
 | `protocol/` | Wire contract v0.3 frozen for MVP |
 
 ## Repository layout
 
 ```
 agent/        Python package — runs on edge device with SDR hardware
-server/       Python package — central relay server (stub)
-web/          Node.js frontend — spectrum viewer UI (stub)
+server/       Python package — central relay server
+web/          Node.js frontend — spectrum viewer UI (not yet started)
 protocol/     Documentation only — wire contract v0.3
 docs/         Architecture and product docs
 scripts/      Dev tooling: demo runner, fake server, recording utilities
@@ -85,6 +83,48 @@ ruff format src/
 ```
 
 Integration tests are marked `@pytest.mark.integration` and require a real network socket. They use `FakeAgentServer` from `scripts/fake_server.py`.
+
+## Server
+
+The server authenticates agents and browsers, relays FFT frames from agents to subscribed viewers in real time, and persists user/agent/token data in SQLite.
+
+### Modules
+
+| Module | Responsibility |
+|---|---|
+| `app/` | FastAPI wiring — HTTP routes, agent WS, viewer WS, lifespan |
+| `auth/` | Password hashing, signed session cookies |
+| `sessions/` | In-memory `SessionRegistry` — live agent sessions and viewer subscriptions |
+| `protocol/codec.py` | Encode/decode all wire messages (v0.3) |
+| `storage/` | SQLAlchemy async engine, ORM models, repository layer (users, agents, tokens) |
+
+### API
+
+See `docs/server_api_contract.md` for frozen JSON shapes. Key surface:
+
+- `POST /auth/login` / `POST /auth/logout` / `GET /me`
+- `GET /agents` / `POST /agents` / `GET /agents/{id}` / `GET /agents/{id}/status`
+- `POST /agents/{id}/tokens` / `POST /agents/{id}/tokens/{token_id}/revoke`
+- `GET /ws/agent` — agent WebSocket (Bearer token auth)
+- `GET /ws/viewer` — browser viewer WebSocket (cookie auth)
+
+### Setup
+
+```bash
+cd server
+pip install -e ".[dev]"
+```
+
+### Tests
+
+```bash
+cd server
+pytest
+```
+
+117 tests across storage, auth, HTTP routes, agent WS, viewer WS, and a full end-to-end vertical slice.
+
+---
 
 ## Live demo
 

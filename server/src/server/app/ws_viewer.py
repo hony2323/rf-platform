@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.auth_config import SESSION_COOKIE_NAME, SESSION_SECRET
@@ -95,6 +98,7 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
             session_id=session.session_id,
         )
         registry.add_viewer(viewer)
+        logger.info("viewer subscribed subscription_id=%s user_id=%s agent_id=%s", subscription_id, user.id, agent.id)
 
         await websocket.send_text(
             encode_viewer_subscribe_ack(str(agent.id), session.session_id, session.stream_id)
@@ -138,6 +142,7 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
     except WebSocketDisconnect:
         pass
     except Exception:
+        logger.exception("viewer unexpected error subscription_id=%s", viewer.subscription_id if viewer else "none")
         try:
             await websocket.send_text(encode_viewer_error("INTERNAL_ERROR", "server fault"))
             await websocket.close()
@@ -146,3 +151,4 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
     finally:
         if viewer is not None:
             websocket.app.state.registry.remove_viewer(viewer.subscription_id)
+            logger.info("viewer unsubscribed subscription_id=%s", viewer.subscription_id)

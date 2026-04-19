@@ -83,7 +83,8 @@ $stdoutFile = Join-Path ([System.IO.Path]::GetTempPath()) ("gcmsg-stdout-" + [Sy
 $stderrFile = Join-Path ([System.IO.Path]::GetTempPath()) ("gcmsg-stderr-" + [System.Guid]::NewGuid().ToString("N") + ".txt")
 
 try {
-    Set-Content -LiteralPath $promptFile -Value $prompt -NoNewline
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($promptFile, $prompt, $utf8NoBom)
 
     $arguments = @(
         "exec"
@@ -114,7 +115,8 @@ try {
         throw "Codex did not return a commit message."
     }
 
-    Get-Content $tmpFile -Raw
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::ReadAllText($tmpFile, [System.Text.Encoding]::UTF8)
 }
 finally {
     if (Test-Path $promptFile) {
