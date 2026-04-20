@@ -42,8 +42,11 @@ export function WaterfallCanvas({ config, onFrame }: WaterfallCanvasProps) {
     );
   }
 
+  const rendererKey = `${config.agent_id}:${config.stream_id}:${config.session_id}:${config.config_version}`;
+
   return (
     <WaterfallLib
+      key={rendererKey}
       ref={handle}
       colorMap={interpolateTurbo}
       heightPx={400}
