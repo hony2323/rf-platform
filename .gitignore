@@ -1,6 +1,11 @@
 # Large RF recordings — not committed. Store in recordings/ at the repo root.
 /recordings/
 
+# Local browser automation artifacts and screenshots
+/.playwright-mcp/
+/.artifacts/
+*.log
+
 # Python cache
 __pycache__/
 *.pyc

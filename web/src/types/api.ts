@@ -14,6 +14,11 @@ export interface AgentResponse {
   stable_node_id: string;
 }
 
+export interface AgentCreateRequest {
+  name: string;
+  stable_node_id: string;
+}
+
 export interface AgentStatusResponse {
   agent_id: string;
   online: boolean;

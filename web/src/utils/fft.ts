@@ -46,12 +46,13 @@ export function toWaterfallFrame(
     normalized[i] = Math.max(0, Math.min(1, (raw[i] - DBFS_MIN) / DBFS_RANGE));
   }
 
+  const centerHz = config.rf.center_freq_hz;
   return {
     header: [
       {
         band_id: "band_0",
-        band_start: config.rf.baseband_start_hz,
-        band_end: config.rf.baseband_end_hz,
+        band_start: centerHz + config.rf.baseband_start_hz,
+        band_end: centerHz + config.rf.baseband_end_hz,
         timestamp: frame.timestamp_utc,
         sent_at: Date.now(),
         length: normalized.byteLength,

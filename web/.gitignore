@@ -17,3 +17,6 @@ node_modules/.tmp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Playwright
+.playwright-mcp

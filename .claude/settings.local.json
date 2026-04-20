@@ -10,7 +10,12 @@
       "Bash(D:/code/rf-platform/server/venv/Scripts/ruff check *)",
       "Bash(npm install *)",
       "Bash(npx tsc *)",
-      "Bash(timeout 8 npx vite --port 5173)"
+      "Bash(timeout 8 npx vite --port 5173)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_fill_form",
+      "mcp__plugin_playwright_playwright__browser_click"
     ]
   }
 }
