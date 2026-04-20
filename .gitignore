@@ -9,3 +9,5 @@ __pycache__/
 /temp staged/
 
 server/rf_platform.db
+
+.vscode/settings.json
