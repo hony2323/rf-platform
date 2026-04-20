@@ -17,7 +17,7 @@ const router = createBrowserRouter([
     ),
   },
   {
-    path: "/agents/:id/live",
+    path: "/agents/:agentId/live",
     element: (
       <ProtectedRoute>
         <div className="p-8 text-white">Live viewer — coming in Phase 9</div>
@@ -25,7 +25,7 @@ const router = createBrowserRouter([
     ),
   },
   {
-    path: "/agents/:id/tokens",
+    path: "/agents/:agentId/tokens",
     element: (
       <ProtectedRoute>
         <div className="p-8 text-white">Token management — coming in Phase 6</div>

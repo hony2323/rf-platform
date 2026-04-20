@@ -18,9 +18,21 @@ export function ProtectedRoute({ children }: Props) {
     );
   }
 
-  if (error instanceof UnauthorizedError || !data) {
+  if (error instanceof UnauthorizedError) {
     return <Navigate to="/login" replace />;
   }
 
-  return <>{children}</>;
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-950">
+        <span className="text-gray-400 text-sm">Failed to verify session. Please try again.</span>
+      </div>
+    );
+  }
+
+  if (data) {
+    return <>{children}</>;
+  }
+
+  return null;
 }
