@@ -165,17 +165,21 @@ Hook details:
 
 | File | Purpose |
 |---|---|
-| `src/utils/fft.ts` | `decodeFloat32Payload(base64, expectedBinCount): Float32Array \| null` |
-| `src/components/WaterfallCanvas.tsx` | Imperative canvas waterfall component |
+| `src/utils/fft.ts` | Frame decode + conversion helpers |
+| `src/components/WaterfallCanvas.tsx` | Waterfall component wrapping `@hony2323/waterfall-canvas` |
 
-`decodeFloat32Payload`: `atob` → `Uint8Array` → `Float32Array` (LE); validates `byteLength === expectedBinCount * 4`; returns `null` and logs in dev on mismatch.
+**`@hony2323/waterfall-canvas@0.1.6`** (GitHub Packages) — ring-buffer renderer with zoom/pan, tooltip, time bar, pluggable colormaps, full TypeScript types.
+
+`utils/fft.ts` exports:
+- `decodeFloat32Payload(base64, expectedBinCount)`: `atob` → `Uint8Array` → `Float32Array` (LE); validates byte length; returns `null` and logs in dev on mismatch
+- `toWaterfallFrame(frame, config)`: decodes payload, normalizes dBFS `[-120, 0]` → `[0, 1]`, returns `ParsedFrame` for the renderer
+- `freqFormat` / `valueFormat`: module-level stable refs (avoids renderer recreation on re-render)
 
 `WaterfallCanvas`:
-- Config change → reset canvas to `bin_count × 400`, fill black
-- Per frame: `drawImage(canvas, 0, 1)` shifts image down; writes new top row as `ImageData`
-- Amplitude mapping: clamp to `[-120, 0]` dBFS → 0–255 grayscale
+- Uses `WaterfallCanvas` from `@hony2323/waterfall-canvas/react` with turbo colormap, tooltip, time bar
+- Frames pushed imperatively via `ref.current.push()` — no React re-renders on the hot path
 - Drops frame if `config_version` doesn't match current config
-- Renders placeholder div (no canvas) while awaiting first `stream_config`
+- Renders placeholder div while awaiting first `stream_config`
 
 ---
 
