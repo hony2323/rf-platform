@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router-dom";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { LoginPage } from "../pages/LoginPage";
+import { AgentsPage } from "../pages/AgentsPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 
 const router = createBrowserRouter([
@@ -12,7 +13,7 @@ const router = createBrowserRouter([
     path: "/agents",
     element: (
       <ProtectedRoute>
-        <div className="p-8 text-white">Agents — coming in Phase 5</div>
+        <AgentsPage />
       </ProtectedRoute>
     ),
   },
