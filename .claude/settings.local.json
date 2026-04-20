@@ -7,7 +7,10 @@
       "Bash(venv/Scripts/pip install *)",
       "Bash(venv/Scripts/pytest tests/unit/test_auth.py -v)",
       "Bash(venv/Scripts/pytest -v)",
-      "Bash(D:/code/rf-platform/server/venv/Scripts/ruff check *)"
+      "Bash(D:/code/rf-platform/server/venv/Scripts/ruff check *)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(timeout 8 npx vite --port 5173)"
     ]
   }
 }
