@@ -73,16 +73,43 @@ WebSocket wire message types derived from server codec (`protocol/codec.py`):
 
 ---
 
+### API client (Phase 3 — complete)
+
+#### `src/api/client.ts`
+
+| Export | Purpose |
+|---|---|
+| `ApiError` | Non-2xx response; carries `status: number` and `message: string` |
+| `UnauthorizedError` | Extends `ApiError`; thrown on 401; callers redirect to `/login` |
+| `apiFetch<T>` | Base wrapper: `credentials: "include"`, JSON encode/decode, 204 → `undefined` |
+
+#### `src/api/auth.ts`
+
+| Function | Route |
+|---|---|
+| `login(email, password)` | `POST /auth/login` → `UserResponse` |
+| `logout()` | `POST /auth/logout` → void (204) |
+| `getMe()` | `GET /me` → `UserResponse` |
+
+#### `src/api/agents.ts`
+
+| Function | Route |
+|---|---|
+| `getAgents()` | `GET /agents` → `AgentResponse[]` |
+| `getAgent(id)` | `GET /agents/:id` → `AgentResponse` |
+| `getAgentStatus(id)` | `GET /agents/:id/status` → `AgentStatusResponse` |
+
+#### `src/api/tokens.ts`
+
+| Function | Route |
+|---|---|
+| `getAgentTokens(agentId)` | `GET /agents/:id/tokens` → `TokenResponse[]` |
+| `createAgentToken(agentId, label)` | `POST /agents/:id/tokens` → `TokenCreateResponse` (201) |
+| `revokeAgentToken(agentId, tokenId)` | `POST /agents/:id/tokens/:tokenId/revoke` → `TokenResponse` |
+
+---
+
 ## What does not exist yet
-
-### Phase 3 — API client (not started)
-
-`src/api/client.ts`, `auth.ts`, `agents.ts`, `tokens.ts`
-
-- Base fetch wrapper with `credentials: "include"`, typed `ApiError`, `UnauthorizedError` (401)
-- `login()`, `logout()`, `getMe()`
-- `getAgents()`, `getAgent(id)`, `getAgentStatus(id)`
-- `getAgentTokens(agentId)`, `createAgentToken(agentId, label)`, `revokeAgentToken(agentId, tokenId)`
 
 ### Phase 4 — Auth flow (not started)
 
