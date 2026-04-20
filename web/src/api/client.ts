@@ -15,6 +15,14 @@ export class UnauthorizedError extends ApiError {
   }
 }
 
+let redirectingToLogin = false;
+
+function redirectToLogin(): void {
+  if (redirectingToLogin) return;
+  redirectingToLogin = true;
+  window.location.replace("/login");
+}
+
 function normalizeHeaders(init: HeadersInit | undefined): Record<string, string> {
   if (!init) return {};
   if (init instanceof Headers) {
@@ -68,7 +76,10 @@ export async function apiFetch<T>(
     headers: { ...auto, ...caller },
   });
 
-  if (res.status === 401) throw new UnauthorizedError();
+  if (res.status === 401) {
+    redirectToLogin();
+    throw new UnauthorizedError();
+  }
 
   if (!res.ok) {
     throw new ApiError(res.status, await extractErrorMessage(res));
