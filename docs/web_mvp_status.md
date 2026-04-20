@@ -183,16 +183,25 @@ Hook details:
 
 ---
 
+### Live page (Phase 9 — complete)
+
+| File | Purpose |
+|---|---|
+| `src/pages/AgentLivePage.tsx` | Full live viewer page |
+| `src/components/ViewerConnectionBadge.tsx` | WS state badge: idle / connecting / live / offline / error |
+
+`AgentLivePage`:
+- Top bar: back link, agent name, `AgentStatusBadge`, `ViewerConnectionBadge`
+- `useViewerStream(agentId)` drives WS lifecycle
+- `WaterfallCanvas` fills the page; placeholder shown until first `stream_config`
+- Error/offline panel beneath waterfall when `connectionState` is `error` or `offline`
+- Agent name fetched via `getAgent(agentId)` (TanStack Query); falls back to `agentId` while loading
+
+`ViewerConnectionBadge` renders a colored pill for each of the five `ViewerConnectionState` values.
+
+---
+
 ## What does not exist yet
-
-### Phase 9 — Live page (not started)
-
-`AgentLivePage.tsx`, `components/ViewerConnectionBadge.tsx`
-
-- Top bar: agent name, status badge, WS connection badge
-- Waterfall fills available width
-- Error/offline message panel when not subscribed
-- Update `router.tsx` `/agents/:agentId/live` stub to real page
 
 ### Phase 10 — Error state polish (not started)
 

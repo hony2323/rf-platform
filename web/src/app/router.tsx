@@ -3,6 +3,7 @@ import { ProtectedRoute } from "../components/ProtectedRoute";
 import { LoginPage } from "../pages/LoginPage";
 import { AgentsPage } from "../pages/AgentsPage";
 import { AgentTokensPage } from "../pages/AgentTokensPage";
+import { AgentLivePage } from "../pages/AgentLivePage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 
 const router = createBrowserRouter([
@@ -22,7 +23,7 @@ const router = createBrowserRouter([
     path: "/agents/:agentId/live",
     element: (
       <ProtectedRoute>
-        <div className="p-8 text-white">Live viewer — coming in Phase 9</div>
+        <AgentLivePage />
       </ProtectedRoute>
     ),
   },
