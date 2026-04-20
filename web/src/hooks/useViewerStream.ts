@@ -33,6 +33,7 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
     new Set(),
   );
   const wsRef = useRef<WebSocket | null>(null);
+  const configRef = useRef<ViewerStreamConfigMessage | null>(null);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // True after subscribe_ack — enables reconnect on close. False on permanent errors.
@@ -50,10 +51,12 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
     setConnectionState("connecting");
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return;
       ws.send(JSON.stringify({ msg_type: "subscribe", agent_id: agentId }));
     };
 
     ws.onmessage = (event: MessageEvent<string>) => {
+      if (wsRef.current !== ws) return;
       let msg: ViewerInboundMessage;
       try {
         msg = JSON.parse(event.data) as ViewerInboundMessage;
@@ -66,6 +69,7 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
         retryCountRef.current = 0;
         setConnectionState("subscribed");
       } else if (msg.msg_type === "stream_config") {
+        configRef.current = msg;
         setConfig(msg);
       } else if (msg.msg_type === "spectrum_frame") {
         frameCallbacks.current.forEach((cb) => cb(msg));
@@ -76,10 +80,12 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
           msg.code === "FORBIDDEN" || msg.code === "INVALID_FRAME";
         if (isPermanent) retryEnabledRef.current = false;
         setConnectionState(msg.code === "AGENT_OFFLINE" ? "offline" : "error");
+        ws.close();
       }
     };
 
     ws.onclose = () => {
+      if (wsRef.current !== ws) return;
       wsRef.current = null;
       if (!retryEnabledRef.current) {
         // Never subscribed or hit permanent error — don't reconnect.
@@ -102,6 +108,7 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
     };
 
     ws.onerror = () => {
+      if (wsRef.current !== ws) return;
       // onclose fires after onerror — all state transitions happen there.
     };
   }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -121,6 +128,7 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
       retryEnabledRef.current = false;
       gotServerErrorRef.current = false;
       retryCountRef.current = 0;
+      configRef.current = null;
       setConnectionState("idle");
       setConfig(null);
       setLastError(null);
