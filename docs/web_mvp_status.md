@@ -27,14 +27,13 @@ Browser
 | File | Purpose |
 |---|---|
 | `package.json` | All deps: React 18, React Router v6, TanStack Query v5, Tailwind CSS v3, Vite 6, TypeScript 5 |
-| `vite.config.ts` | Dev server with `bypass()`-guarded proxy to `localhost:8000`; WebSocket proxy included |
+| `vite.config.ts` | Dev server with explicit path proxies (`/ws`, `/auth`, `/agents`, `/me`) to `localhost:8000`; only `/ws` gets `ws: true` |
 | `tsconfig.json` / `tsconfig.app.json` / `tsconfig.node.json` | Strict TypeScript, composite build, ES2020 target |
 | `tailwind.config.js` / `postcss.config.js` | Tailwind content paths wired to `src/` |
 | `src/index.css` | Tailwind base/components/utilities directives |
 | `src/vite-env.d.ts` | `/// <reference types="vite/client" />` — required for CSS import typing |
 | `src/main.tsx` | App entry: `StrictMode` + `QueryClientProvider` + `RouterProvider` |
 | `src/app/App.tsx` | Thin `RouterProvider` wrapper |
-| `src/app/router.tsx` | Stub router — catch-all `*` route only; real routes added in Phase 4 |
 | `.gitignore` | Node/Vite-specific: `node_modules/`, `dist/`, `.vite/`, `*.tsbuildinfo` |
 | `.github/workflows/web-ci.yml` | CI: typecheck (`tsc -b --noEmit`) + build (`npm run build`); path-filtered to `web/**` |
 
@@ -109,49 +108,78 @@ WebSocket wire message types derived from server codec (`protocol/codec.py`):
 
 ---
 
-## What does not exist yet
+### Auth flow (Phase 4 — complete)
 
-### Phase 4 — Auth flow (not started)
+| File | Purpose |
+|---|---|
+| `src/pages/LoginPage.tsx` | Email/password form; 401 → inline error; success → navigate to `/agents` |
+| `src/components/ProtectedRoute.tsx` | Calls `getMe()`; loading spinner → unauthenticated redirect to `/login` → render children |
+| `src/hooks/useCurrentUser.ts` | TanStack Query hook wrapping `getMe()`; throws `UnauthorizedError` on 401 |
+| `src/pages/NotFoundPage.tsx` | Catch-all 404 page |
+| `src/app/router.tsx` | Routes: `/login`, `/agents`, `/agents/:agentId/live` (stub), `/agents/:agentId/tokens`, `*` → NotFoundPage |
 
-`LoginPage.tsx`, `ProtectedRoute.tsx`, `hooks/useCurrentUser.ts`, updated `router.tsx`
+---
 
-- TanStack Query hook wrapping `getMe()`
-- `ProtectedRoute`: loading spinner → unauthenticated redirect → render children
-- `LoginPage`: email/password form, error display on 401
-- Real routes: `/login`, `/agents`, `/agents/:id/live`, `/agents/:id/tokens`, `*` → `NotFoundPage`
+### Agents list page (Phase 5 — complete)
 
-### Phase 5 — Agents list page (not started)
+| File | Purpose |
+|---|---|
+| `src/pages/AgentsPage.tsx` | Lists all agents with name, node_id, status badge, links to live/tokens pages |
+| `src/hooks/useAgents.ts` | TanStack Query wrapping `getAgents()` |
+| `src/hooks/useAgentStatus.ts` | TanStack Query wrapping `getAgentStatus(id)`; 10s refetch interval |
+| `src/components/AgentStatusBadge.tsx` | Green "Online" / gray "Offline" badge driven by `AgentStatusResponse` |
 
-`AgentsPage.tsx`, `hooks/useAgents.ts`, `hooks/useAgentStatus.ts`
+---
 
-- TanStack Query wrapping `getAgents()` and `getAgentStatus(id)` (10s refetch)
-- Inline agent list rows with status badge; links to live and token pages
+### Token management page (Phase 6 — complete)
 
-### Phase 6 — Token management page (not started)
+| File | Purpose |
+|---|---|
+| `src/pages/AgentTokensPage.tsx` | Token table with revoke button; hosts `CreateTokenDialog` |
+| `src/hooks/useAgentTokens.ts` | TanStack Query hooks: `useAgentTokens`, `useCreateAgentToken`, `useRevokeAgentToken` |
 
-`AgentTokensPage.tsx`, `hooks/useAgentTokens.ts`
+`CreateTokenDialog`: label input → on success, displays raw token once with copy button and "Copy now" warning.
 
-- Token table with revoke button
-- Create token dialog: label input → display raw token once with copy button
+---
 
-### Phase 7 — Viewer WebSocket hook (not started)
+### Viewer WebSocket hook (Phase 7 — complete)
 
-`hooks/useViewerStream.ts`
+| File | Purpose |
+|---|---|
+| `src/api/viewer.ts` | `viewerWsUrl()` returns `"/ws/viewer"` (relative; Vite proxy upgrades to WS) |
+| `src/hooks/useViewerStream.ts` | Full WS lifecycle hook |
 
-- Plain `useEffect` + `useRef` + `useState` (no TanStack Query)
+Hook details:
 - States: `idle → connecting → subscribed → offline | error`
-- Auto-reconnect with exponential backoff (1s → 30s); resets on successful ack
+- `retryEnabledRef`: set `true` on `subscribe_ack`; `false` on `FORBIDDEN`/`INVALID_FRAME` — controls reconnect
+- `gotServerErrorRef`: prevents duplicate generic error message when server already described the failure
+- Exponential backoff: `Math.min(1000 * 2^n, 30000)` ms; resets to 0 on successful `subscribe_ack`
+- Stale socket guard (`wsRef.current !== ws`) in all four WS event handlers
 - Frame callbacks stored in a `Set` ref — no React state per frame
-- Config stored in both ref (for frame callbacks) and state (for UI re-render)
+- Config stored in both `configRef` (imperative) and `setConfig` (UI re-render)
+- Cleanup: nulls `onclose` before `close()` to prevent spurious reconnect on unmount
 
-### Phase 8 — Waterfall canvas (not started)
+---
 
-`components/WaterfallCanvas.tsx`, `utils/fft.ts`
+### Waterfall canvas (Phase 8 — complete)
 
-- `decodeFloat32Payload(base64, expectedBinCount): Float32Array | null`
-- Imperative canvas: scroll-down per frame, new row written as `ImageData` at `y=0`
-- Clamp bins to `[-120, 0]` dBFS → 0–255 grayscale
-- Config change → full canvas reset (width = `bin_count`, height = 400, black fill)
+| File | Purpose |
+|---|---|
+| `src/utils/fft.ts` | `decodeFloat32Payload(base64, expectedBinCount): Float32Array \| null` |
+| `src/components/WaterfallCanvas.tsx` | Imperative canvas waterfall component |
+
+`decodeFloat32Payload`: `atob` → `Uint8Array` → `Float32Array` (LE); validates `byteLength === expectedBinCount * 4`; returns `null` and logs in dev on mismatch.
+
+`WaterfallCanvas`:
+- Config change → reset canvas to `bin_count × 400`, fill black
+- Per frame: `drawImage(canvas, 0, 1)` shifts image down; writes new top row as `ImageData`
+- Amplitude mapping: clamp to `[-120, 0]` dBFS → 0–255 grayscale
+- Drops frame if `config_version` doesn't match current config
+- Renders placeholder div (no canvas) while awaiting first `stream_config`
+
+---
+
+## What does not exist yet
 
 ### Phase 9 — Live page (not started)
 
@@ -160,6 +188,7 @@ WebSocket wire message types derived from server codec (`protocol/codec.py`):
 - Top bar: agent name, status badge, WS connection badge
 - Waterfall fills available width
 - Error/offline message panel when not subscribed
+- Update `router.tsx` `/agents/:agentId/live` stub to real page
 
 ### Phase 10 — Error state polish (not started)
 
@@ -174,17 +203,9 @@ WebSocket wire message types derived from server codec (`protocol/codec.py`):
 
 ## Gaps
 
-### Gap: `router.tsx` is a stub
-
-The router has only a `*` catch-all route. All real routes (`/login`, `/agents`, etc.) are added in Phase 4.
-
 ### Gap: No lint step in CI
 
 The web CI runs only `typecheck` and `build`. ESLint is not configured yet. Mirror server CI lint step when ESLint is added.
-
-### Gap: `vite.config.ts` proxy `bypass()` may miss edge cases
-
-The bypass list is a static extension check. If Vite adds new internal URL patterns (e.g. `/__vite_ping`) they would be incorrectly proxied to the backend. Low risk for MVP but worth revisiting if proxy issues appear during development.
 
 ---
 
