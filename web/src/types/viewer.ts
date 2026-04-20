@@ -1,14 +1,20 @@
 export interface RfConfig {
-  center_hz: number;
+  center_freq_hz: number;
   sample_rate_hz: number;
-  bin_count: number;
   fft_size: number;
-  gain_db: number | null;
+  baseband_start_hz: number;
+  baseband_end_hz: number;
+  bin_size_hz: number;
+  bin_count: number;
+  window_fn: string;
 }
 
 export interface FftSemantics {
-  window: string;
-  overlap: number;
+  kind: string;
+  scale: string;
+  unit: string;
+  numeric_type: string;
+  bin_order: string;
 }
 
 export interface ViewerSubscribeMessage {
