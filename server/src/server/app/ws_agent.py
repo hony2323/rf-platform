@@ -8,8 +8,6 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
-
-logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.deps import get_db
@@ -33,6 +31,7 @@ from server.sessions.models import LiveAgentSession
 from server.storage.repositories.agent_tokens import get_active_token_by_hash
 from server.storage.repositories.agents import get_agent_by_id_unscoped
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -148,7 +147,9 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
         try:
             bin_count = int(msg.rf["bin_count"])
         except (KeyError, TypeError, ValueError):
-            await _send_fatal(websocket, session_id, "INVALID_FRAME", "stream_config missing rf.bin_count")
+            await _send_fatal(
+                websocket, session_id, "INVALID_FRAME", "stream_config missing rf.bin_count"
+            )
             return
 
         config_version = 1
@@ -206,9 +207,10 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                 try:
                     new_bin_count = int(msg.rf["bin_count"])
                 except (KeyError, TypeError, ValueError):
-                    await websocket.send_text(
-                        encode_error(session_id, "INVALID_FRAME", "stream_config missing rf.bin_count", fatal=False)
-                    )
+                    await websocket.send_text(encode_error(
+                        session_id, "INVALID_FRAME",
+                        "stream_config missing rf.bin_count", fatal=False,
+                    ))
                     continue
                 config_version += 1
                 config_cache = {
@@ -231,11 +233,16 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     encode_stream_config_ack(session_id, msg.stream_id, config_version)
                 )
             elif isinstance(msg, SpectrumFrameMsg):
-                if msg.stream_id != session.stream_id or msg.config_version != session.config_version:
+                if (
+                    msg.stream_id != session.stream_id
+                    or msg.config_version != session.config_version
+                ):
+                    sv = session.config_version
+                    got = msg.config_version
                     await websocket.send_text(encode_error(
                         session_id, "INVALID_FRAME",
-                        f"expected stream_id={session.stream_id}, config_version={session.config_version} "
-                        f"but got stream_id={msg.stream_id}, config_version={msg.config_version}",
+                        f"expected stream_id={session.stream_id}, config_version={sv} "
+                        f"but got stream_id={msg.stream_id}, config_version={got}",
                         fatal=False, stream_id=msg.stream_id,
                         config_version=msg.config_version, frame_index=msg.frame_index,
                     ))
@@ -266,14 +273,17 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     except asyncio.QueueFull:
                         pass
             else:
-                await websocket.send_text(
-                    encode_error(session_id, "INVALID_FRAME", "unexpected message type", fatal=False)
-                )
+                await websocket.send_text(encode_error(
+                    session_id, "INVALID_FRAME", "unexpected message type", fatal=False,
+                ))
 
     except WebSocketDisconnect:
         pass
     except Exception:
-        logger.exception("agent unexpected error session_id=%s agent_id=%s", session_id, getattr(agent, "id", "unknown"))
+        logger.exception(
+            "agent unexpected error session_id=%s agent_id=%s",
+            session_id, getattr(agent, "id", "unknown"),
+        )
         try:
             await websocket.send_text(
                 encode_error(session_id, "INTERNAL_ERROR", "server fault", fatal=True)

@@ -49,7 +49,9 @@ class AgentToken(Base):
     __tablename__ = "agent_tokens"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
-    agent_id: Mapped[str] = mapped_column(String, ForeignKey("agents.id"), nullable=False, index=True)
+    agent_id: Mapped[str] = mapped_column(
+        String, ForeignKey("agents.id"), nullable=False, index=True
+    )
     label: Mapped[str | None] = mapped_column(String, nullable=True)
     token_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

@@ -6,7 +6,8 @@
       "Bash(pytest tests/unit/ -v)",
       "Bash(venv/Scripts/pip install *)",
       "Bash(venv/Scripts/pytest tests/unit/test_auth.py -v)",
-      "Bash(venv/Scripts/pytest -v)"
+      "Bash(venv/Scripts/pytest -v)",
+      "Bash(D:/code/rf-platform/server/venv/Scripts/ruff check *)"
     ]
   }
 }

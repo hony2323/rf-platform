@@ -215,7 +215,9 @@ def _make_payload(bin_count: int, value: float = -70.0) -> str:
     return base64.b64encode(struct.pack(f"<{bin_count}f", *[value] * bin_count)).decode()
 
 
-def _spectrum_frame_msg(session_id: str, config_version: int, frame_index: int, payload: str) -> dict:
+def _spectrum_frame_msg(
+    session_id: str, config_version: int, frame_index: int, payload: str
+) -> dict:
     return {
         "msg_type": "spectrum_frame",
         "node_id": "node_e2e",
@@ -294,7 +296,9 @@ async def test_full_vertical_slice(app, db_state):
 
         # 4. Agent sends frame — viewer receives it
         payload = _make_payload(BIN_COUNT, value=FRAME_VALUE)
-        await agent.send_json(_spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=payload))
+        await agent.send_json(
+            _spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=payload)
+        )
 
         frame = await viewer.recv_json()
         assert frame["msg_type"] == "spectrum_frame"

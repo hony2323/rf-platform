@@ -31,7 +31,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Create an RF Platform user account.")
     parser.add_argument("--email", required=True, help="User email address")
     parser.add_argument("--password", required=True, help="Plaintext password (will be hashed)")
-    parser.add_argument("--db-path", default=None, help="SQLite path (default: RF_DB_PATH env or rf_platform.db)")
+    parser.add_argument(
+        "--db-path", default=None,
+        help="SQLite path (default: RF_DB_PATH env or rf_platform.db)",
+    )
     args = parser.parse_args()
 
     if args.db_path is None:

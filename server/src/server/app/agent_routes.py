@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.deps import get_current_user, get_db
-from server.storage.models import Agent, AgentToken, User
+from server.storage.models import AgentToken, User
 from server.storage.repositories import agent_tokens as tokens_repo
 from server.storage.repositories import agents as agents_repo
 

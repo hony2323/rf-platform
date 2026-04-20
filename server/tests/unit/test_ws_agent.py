@@ -200,7 +200,9 @@ def _make_payload(bin_count: int, value: float = -70.0) -> str:
     return base64.b64encode(struct.pack(f"<{bin_count}f", *[value] * bin_count)).decode()
 
 
-def _spectrum_frame_msg(session_id: str, config_version: int, frame_index: int, payload: str) -> dict:
+def _spectrum_frame_msg(
+    session_id: str, config_version: int, frame_index: int, payload: str
+) -> dict:
     return {
         "msg_type": "spectrum_frame",
         "node_id": "node_x",
@@ -315,7 +317,7 @@ async def test_non_connect_first_message_rejected(app, db_state):
 
 async def test_stream_config_ack_has_correct_fields(app, db_state):
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
-    session_id = await _do_full_handshake(ws)
+    await _do_full_handshake(ws)
     # Verify stream_config_ack fields were already asserted in helper; check more detail
     # Re-do manually for field assertions
     await ws.close()
@@ -342,7 +344,9 @@ async def test_non_stream_config_after_connect_ack_rejected(app, db_state):
     await ws.send_json(_connect_msg())
     await ws.recv_json()  # connect_ack
     # Send heartbeat instead of stream_config
-    await ws.send_json({"msg_type": "heartbeat", "node_id": "n", "session_id": "s", "timestamp_utc": "t"})
+    await ws.send_json({
+        "msg_type": "heartbeat", "node_id": "n", "session_id": "s", "timestamp_utc": "t",
+    })
     err = await ws.recv_json()
     assert err["msg_type"] == "error"
     assert err["code"] == "INVALID_FRAME"
@@ -379,7 +383,6 @@ async def test_session_deregistered_on_disconnect(app, db_state):
 # ---------------------------------------------------------------------------
 
 async def test_heartbeat_updates_timestamp(app, db_state):
-    from datetime import UTC, datetime
 
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
     session_id = await _do_full_handshake(ws)
@@ -443,7 +446,9 @@ async def test_spectrum_frame_valid_enqueued(app, db_state):
     session = app.state.registry.get_session(session_id)
 
     payload = _make_payload(BIN_COUNT, value=-70.0)
-    await ws.send_json(_spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=payload))
+    await ws.send_json(
+        _spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=payload)
+    )
     await asyncio.sleep(0)
 
     assert session.frame_queue.qsize() == 1
@@ -460,7 +465,9 @@ async def test_spectrum_frame_payload_too_short_sends_error(app, db_state):
     session = app.state.registry.get_session(session_id)
 
     short_payload = base64.b64encode(bytes(BIN_COUNT * 4 - 1)).decode()
-    await ws.send_json(_spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=short_payload))
+    await ws.send_json(
+        _spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=short_payload)
+    )
     err = await ws.recv_json()
 
     assert err["msg_type"] == "error"
@@ -480,7 +487,9 @@ async def test_spectrum_frame_payload_too_long_sends_error(app, db_state):
     session = app.state.registry.get_session(session_id)
 
     long_payload = base64.b64encode(bytes(BIN_COUNT * 4 + 4)).decode()
-    await ws.send_json(_spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=long_payload))
+    await ws.send_json(
+        _spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=long_payload)
+    )
     err = await ws.recv_json()
 
     assert err["msg_type"] == "error"
@@ -496,7 +505,11 @@ async def test_spectrum_frame_invalid_base64_sends_error(app, db_state):
     session_id = await _do_full_handshake(ws, bin_count=BIN_COUNT)
     session = app.state.registry.get_session(session_id)
 
-    await ws.send_json(_spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload="not!valid@base64#"))
+    await ws.send_json(
+        _spectrum_frame_msg(
+            session_id, config_version=1, frame_index=0, payload="not!valid@base64#"
+        )
+    )
     err = await ws.recv_json()
 
     assert err["msg_type"] == "error"
@@ -513,7 +526,9 @@ async def test_spectrum_frame_wrong_stream_id_sends_error(app, db_state):
     session = app.state.registry.get_session(session_id)
 
     bad_frame = dict(
-        _spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=_make_payload(BIN_COUNT)),
+        _spectrum_frame_msg(
+            session_id, config_version=1, frame_index=0, payload=_make_payload(BIN_COUNT)
+        ),
         stream_id="wrong_stream",
     )
     await ws.send_json(bad_frame)
@@ -539,7 +554,11 @@ async def test_spectrum_frame_stale_config_version_sends_error(app, db_state):
     assert session.config_version == 2
 
     # Send frame with old config_version=1
-    await ws.send_json(_spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=_make_payload(BIN_COUNT)))
+    await ws.send_json(
+        _spectrum_frame_msg(
+            session_id, config_version=1, frame_index=0, payload=_make_payload(BIN_COUNT)
+        )
+    )
     err = await ws.recv_json()
 
     assert err["msg_type"] == "error"
@@ -559,7 +578,9 @@ async def test_spectrum_frame_current_config_version_enqueued_after_reconfig(app
 
     session = app.state.registry.get_session(session_id)
     payload = _make_payload(BIN_COUNT)
-    await ws.send_json(_spectrum_frame_msg(session_id, config_version=2, frame_index=0, payload=payload))
+    await ws.send_json(
+        _spectrum_frame_msg(session_id, config_version=2, frame_index=0, payload=payload)
+    )
     await asyncio.sleep(0)
 
     assert session.frame_queue.qsize() == 1
@@ -580,7 +601,9 @@ async def test_reconfig_updates_bin_count_for_validation(app, db_state):
 
     # Frame valid for new bin_count
     payload = _make_payload(new_bin_count)
-    await ws.send_json(_spectrum_frame_msg(session_id, config_version=2, frame_index=0, payload=payload))
+    await ws.send_json(
+        _spectrum_frame_msg(session_id, config_version=2, frame_index=0, payload=payload)
+    )
     await asyncio.sleep(0)
     assert session.frame_queue.qsize() == 1
     await ws.close()

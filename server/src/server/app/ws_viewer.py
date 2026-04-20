@@ -6,8 +6,6 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
-
-logger = logging.getLogger(__name__)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.deps import get_db
@@ -21,6 +19,7 @@ from server.sessions.models import ViewerSubscription
 from server.storage.repositories import agents as agents_repo
 from server.storage.repositories import users as users_repo
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -98,7 +97,10 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
             session_id=session.session_id,
         )
         registry.add_viewer(viewer)
-        logger.info("viewer subscribed subscription_id=%s user_id=%s agent_id=%s", subscription_id, user.id, agent.id)
+        logger.info(
+            "viewer subscribed subscription_id=%s user_id=%s agent_id=%s",
+            subscription_id, user.id, agent.id,
+        )
 
         await websocket.send_text(
             encode_viewer_subscribe_ack(str(agent.id), session.session_id, session.stream_id)
@@ -107,7 +109,9 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
         # Config-first: send current stream config before any frames
         if session.last_stream_config is not None:
             await websocket.send_text(
-                encode_viewer_stream_config(str(agent.id), session.session_id, session.last_stream_config)
+                encode_viewer_stream_config(
+                    str(agent.id), session.session_id, session.last_stream_config
+                )
             )
 
         # ---- drain loop ----
@@ -142,7 +146,10 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
     except WebSocketDisconnect:
         pass
     except Exception:
-        logger.exception("viewer unexpected error subscription_id=%s", viewer.subscription_id if viewer else "none")
+        logger.exception(
+            "viewer unexpected error subscription_id=%s",
+            viewer.subscription_id if viewer else "none",
+        )
         try:
             await websocket.send_text(encode_viewer_error("INTERNAL_ERROR", "server fault"))
             await websocket.close()

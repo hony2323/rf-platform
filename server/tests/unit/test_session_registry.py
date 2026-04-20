@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
 
 from server.sessions.models import LiveAgentSession, ViewerSubscription
 from server.sessions.registry import SessionRegistry
@@ -119,7 +118,6 @@ def test_add_session_replaces_existing_for_same_id():
 # ---------------------------------------------------------------------------
 
 def test_update_heartbeat_returns_true_and_refreshes_timestamp():
-    from datetime import UTC, datetime, timedelta
 
     reg = SessionRegistry()
     s = make_session()

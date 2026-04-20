@@ -208,7 +208,9 @@ def _make_payload(bin_count: int, value: float = -70.0) -> str:
     return base64.b64encode(struct.pack(f"<{bin_count}f", *[value] * bin_count)).decode()
 
 
-def _spectrum_frame_msg(session_id: str, config_version: int, frame_index: int, payload: str) -> dict:
+def _spectrum_frame_msg(
+    session_id: str, config_version: int, frame_index: int, payload: str
+) -> dict:
     return {
         "msg_type": "spectrum_frame",
         "node_id": "node_x",
@@ -289,7 +291,9 @@ async def test_viewer_receives_fanned_out_frame(app, db_state):
     await viewer.recv_json()  # stream_config
 
     payload = _make_payload(BIN_COUNT, value=-70.0)
-    await agent.send_json(_spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=payload))
+    await agent.send_json(
+        _spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=payload)
+    )
 
     frame = await viewer.recv_json()
     assert frame["msg_type"] == "spectrum_frame"
@@ -322,7 +326,9 @@ async def test_two_viewers_both_receive_frame(app, db_state):
     await viewer2.recv_json()  # stream_config
 
     payload = _make_payload(BIN_COUNT)
-    await agent.send_json(_spectrum_frame_msg(session_id, config_version=1, frame_index=7, payload=payload))
+    await agent.send_json(
+        _spectrum_frame_msg(session_id, config_version=1, frame_index=7, payload=payload)
+    )
 
     frame1 = await viewer1.recv_json()
     frame2 = await viewer2.recv_json()
@@ -409,7 +415,9 @@ async def test_viewer_receives_config_before_new_version_frame(app, db_state):
     await agent.send_json(_stream_config_msg(session_id, bin_count=new_bin_count))
     await agent.recv_json()  # stream_config_ack
     payload = _make_payload(new_bin_count)
-    await agent.send_json(_spectrum_frame_msg(session_id, config_version=2, frame_index=0, payload=payload))
+    await agent.send_json(
+        _spectrum_frame_msg(session_id, config_version=2, frame_index=0, payload=payload)
+    )
 
     # Viewer must receive the reconfig stream_config before the new-version frame
     msg1 = await viewer.recv_json()
@@ -489,7 +497,9 @@ async def test_slow_viewer_full_queue_does_not_block_agent(app, db_state):
 
     # Agent sends a frame — fan-out must drop silently without blocking
     payload = _make_payload(BIN_COUNT)
-    await agent.send_json(_spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=payload))
+    await agent.send_json(
+        _spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=payload)
+    )
     await asyncio.sleep(0)
 
     # Frame was accepted into session.frame_queue; viewer drop was silent
