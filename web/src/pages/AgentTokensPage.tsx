@@ -12,7 +12,16 @@ function CreateTokenDialog({
 }) {
   const [label, setLabel] = useState("");
   const [created, setCreated] = useState<TokenCreateResponse | null>(null);
+  const [copied, setCopied] = useState(false);
   const { mutate, isPending, error } = useCreateAgentToken(agentId);
+
+  function handleCopy() {
+    if (!created) return;
+    navigator.clipboard.writeText(created.token).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,13 +35,20 @@ function CreateTokenDialog({
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
         <div className="bg-gray-900 rounded-lg p-6 w-full max-w-md">
           <h2 className="text-white text-lg font-semibold mb-4">Token created</h2>
-          <p className="text-gray-400 text-sm mb-2">
+          <p className="text-yellow-400 text-sm font-bold mb-2">
             Copy this token now — it will not be shown again.
           </p>
-          <pre className="bg-gray-800 text-green-300 text-xs font-mono rounded p-3 break-all whitespace-pre-wrap mb-6">
+          <pre className="bg-gray-800 text-green-300 text-xs font-mono rounded p-3 break-all whitespace-pre-wrap mb-4">
             {created.token}
           </pre>
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={handleCopy}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded transition-colors disabled:opacity-50"
+              disabled={copied}
+            >
+              {copied ? "Copied!" : "Copy"}
+            </button>
             <button
               onClick={onClose}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded transition-colors"
