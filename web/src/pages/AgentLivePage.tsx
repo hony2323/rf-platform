@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getAgent } from "../api/agents";
+import { ApiError } from "../api/client";
 import { useAgentStatus } from "../hooks/useAgentStatus";
 import { useViewerStream } from "../hooks/useViewerStream";
 import { AgentStatusBadge } from "../components/AgentStatusBadge";
@@ -19,6 +20,22 @@ export function AgentLivePage() {
 
   const statusQuery = useAgentStatus(agentId!);
   const { connectionState, config, lastError, onFrame } = useViewerStream(agentId!);
+
+  if (agentQuery.error instanceof ApiError && agentQuery.error.status === 404) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-950">
+        <span className="text-gray-400 text-sm">Agent not found.</span>
+      </div>
+    );
+  }
+
+  if (agentQuery.isError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-950">
+        <span className="text-gray-400 text-sm">Server error. Please try again.</span>
+      </div>
+    );
+  }
 
   const agentName = agentQuery.data?.name ?? agentId ?? "Agent";
   const isOnline = statusQuery.data?.online ?? false;

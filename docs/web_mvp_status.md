@@ -201,16 +201,22 @@ Hook details:
 
 ---
 
+### Error state polish (Phase 10 — complete)
+
+| Location | Condition | Behaviour |
+|---|---|---|
+| `src/main.tsx` `QueryCache.onError` | Any query throws `UnauthorizedError` (401) | `window.location.replace("/login")` |
+| `AgentLivePage` `agentQuery` | `ApiError` with status 404 | "Agent not found." full-screen message |
+| `AgentLivePage` `agentQuery` | Any other error | "Server error. Please try again." full-screen message |
+| `useViewerStream` `ws.onmessage` | `error` message with code `FORBIDDEN` | `connectionState = "error"`, `lastError = msg.message`; no reconnect |
+| `useViewerStream` `ws.onmessage` | `error` message with code `AGENT_OFFLINE` | `connectionState = "offline"`, `lastError = msg.message` |
+| `useViewerStream` `ws.onclose` | Closed before `subscribe_ack` | `connectionState = "error"`, `lastError = "Connection closed before subscribe was acknowledged"` |
+
+WS error states (FORBIDDEN, AGENT_OFFLINE, close-before-ack) were already handled in Phase 7; Phase 10 added the HTTP-layer guards.
+
+---
+
 ## What does not exist yet
-
-### Phase 10 — Error state polish (not started)
-
-- 401 anywhere → redirect to `/login`
-- 404 on agent page → "Agent not found"
-- 5xx → "Server error, try again"
-- WS `FORBIDDEN` → access error message
-- WS `AGENT_OFFLINE` → offline state UI
-- WS socket close before ack → "Connection failed"
 
 ---
 
