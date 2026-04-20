@@ -2,6 +2,7 @@ import { createBrowserRouter } from "react-router-dom";
 import { ProtectedRoute } from "../components/ProtectedRoute";
 import { LoginPage } from "../pages/LoginPage";
 import { AgentsPage } from "../pages/AgentsPage";
+import { AgentTokensPage } from "../pages/AgentTokensPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 
 const router = createBrowserRouter([
@@ -29,7 +30,7 @@ const router = createBrowserRouter([
     path: "/agents/:agentId/tokens",
     element: (
       <ProtectedRoute>
-        <div className="p-8 text-white">Token management — coming in Phase 6</div>
+        <AgentTokensPage />
       </ProtectedRoute>
     ),
   },
