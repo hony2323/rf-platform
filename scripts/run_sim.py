@@ -263,10 +263,13 @@ async def run(args: argparse.Namespace) -> None:
         if suffix == ".sigmf-meta":
             iq = _iq_from_sigmf(file_path)
             source_label = f"sigmf:{file_path.name}"
+            # One block = one FFT frame worth of samples → smooth per-frame pacing.
+            file_block_size = args.fft_size * iq.sample_format.bytes_per_sample
 
             def make_source(cfg: AgentConfig) -> SigMFSource:
                 return SigMFSource(
                     meta_path=file_path,
+                    block_size=file_block_size,
                     loops=None,
                     rate_limit_msps=args.rate_limit_msps,
                 )
@@ -276,11 +279,13 @@ async def run(args: argparse.Namespace) -> None:
                 raise SystemExit("--freq is required for WAV files (WAV has no center frequency metadata)")
             iq = _iq_from_wav(file_path, args.freq)
             source_label = f"wav:{file_path.name}"
+            file_block_size = args.fft_size * iq.sample_format.bytes_per_sample
 
             def make_source(cfg: AgentConfig) -> WavSource:
                 return WavSource(
                     wav_path=file_path,
                     center_freq_hz=cfg.iq.center_freq_hz,
+                    block_size=file_block_size,
                     loops=None,
                     rate_limit_msps=args.rate_limit_msps,
                 )

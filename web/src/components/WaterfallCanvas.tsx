@@ -8,14 +8,23 @@ import type {
   ViewerSpectrumFrameMessage,
   ViewerStreamConfigMessage,
 } from "../types/viewer";
-import { toWaterfallFrame, freqFormat, valueFormat } from "../utils/fft";
+import { DBFS_MIN, DBFS_RANGE, toWaterfallFrame, freqFormat, valueFormat } from "../utils/fft";
 
 interface WaterfallCanvasProps {
   config: ViewerStreamConfigMessage | null;
   onFrame: (cb: (frame: ViewerSpectrumFrameMessage) => void) => () => void;
+  /** Bottom of the visible dBFS window. Default: DBFS_MIN (-120). */
+  dbfsFloor?: number;
+  /** Top of the visible dBFS window. Default: 0. */
+  dbfsCeiling?: number;
 }
 
-export function WaterfallCanvas({ config, onFrame }: WaterfallCanvasProps) {
+export function WaterfallCanvas({
+  config,
+  onFrame,
+  dbfsFloor = DBFS_MIN,
+  dbfsCeiling = 0,
+}: WaterfallCanvasProps) {
   const handle = useRef<WaterfallCanvasHandle>(null);
   const configRef = useRef<ViewerStreamConfigMessage | null>(null);
 
@@ -44,6 +53,10 @@ export function WaterfallCanvas({ config, onFrame }: WaterfallCanvasProps) {
 
   const rendererKey = `${config.agent_id}:${config.stream_id}:${config.session_id}:${config.config_version}`;
 
+  // Map the dBFS window [dbfsFloor, dbfsCeiling] to normalized sensitivity [0,1].
+  const sensitivityLow = (dbfsFloor - DBFS_MIN) / DBFS_RANGE;
+  const sensitivityHigh = (dbfsCeiling - DBFS_MIN) / DBFS_RANGE;
+
   return (
     <WaterfallLib
       key={rendererKey}
@@ -55,6 +68,7 @@ export function WaterfallCanvas({ config, onFrame }: WaterfallCanvasProps) {
       timeBar
       freqFormat={freqFormat}
       valueFormat={valueFormat}
+      sensitivity={{ low: sensitivityLow, high: sensitivityHigh }}
     />
   );
 }

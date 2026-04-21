@@ -4,9 +4,9 @@ import type {
   ViewerStreamConfigMessage,
 } from "../types/viewer";
 
-const DBFS_MIN = -120;
-const DBFS_MAX = 0;
-const DBFS_RANGE = DBFS_MAX - DBFS_MIN;
+export const DBFS_MIN = -120;
+export const DBFS_MAX = 0;
+export const DBFS_RANGE = DBFS_MAX - DBFS_MIN;
 
 export function decodeFloat32Payload(
   base64Payload: string,
@@ -40,10 +40,10 @@ export function toWaterfallFrame(
   const raw = decodeFloat32Payload(frame.data.payload, config.rf.bin_count);
   if (!raw) return null;
 
-  // Normalize dBFS [-120, 0] → [0, 1] for the renderer.
+  // Normalize dBFS [-120, 0] → [0, 100] for the renderer (float32 precision expects 0–100).
   const normalized = new Float32Array(raw.length);
   for (let i = 0; i < raw.length; i++) {
-    normalized[i] = Math.max(0, Math.min(1, (raw[i] - DBFS_MIN) / DBFS_RANGE));
+    normalized[i] = Math.max(0, Math.min(100, ((raw[i] - DBFS_MIN) / DBFS_RANGE) * 100));
   }
 
   const centerHz = config.rf.center_freq_hz;

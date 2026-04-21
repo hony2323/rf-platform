@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getAgent } from "../api/agents";
@@ -11,6 +12,8 @@ import type { AgentResponse } from "../types/api";
 
 export function AgentLivePage() {
   const { agentId } = useParams<{ agentId: string }>();
+  const [dbfsFloor, setDbfsFloor] = useState(-120);
+  const [dbfsCeiling, setDbfsCeiling] = useState(-50);
 
   const agentQuery = useQuery<AgentResponse, Error>({
     queryKey: ["agent", agentId],
@@ -66,11 +69,28 @@ export function AgentLivePage() {
           <span className="text-gray-600 mr-1">heartbeat</span>
           {statusQuery.data?.last_heartbeat_at ?? "—"}
         </span>
+        <span className="flex items-center gap-1 ml-auto">
+          <span className="text-gray-600">floor</span>
+          <input
+            type="number"
+            value={dbfsFloor}
+            onChange={(e) => setDbfsFloor(Number(e.target.value))}
+            className="w-16 bg-gray-800 border border-gray-700 text-gray-300 rounded px-1 py-0.5 text-xs text-right focus:outline-none focus:border-blue-500"
+          />
+          <span className="text-gray-600">ceil</span>
+          <input
+            type="number"
+            value={dbfsCeiling}
+            onChange={(e) => setDbfsCeiling(Number(e.target.value))}
+            className="w-16 bg-gray-800 border border-gray-700 text-gray-300 rounded px-1 py-0.5 text-xs text-right focus:outline-none focus:border-blue-500"
+          />
+          <span className="text-gray-600">dBFS</span>
+        </span>
       </div>
 
       {/* Waterfall */}
       <main className="flex-1 flex flex-col">
-        <WaterfallCanvas config={config} onFrame={onFrame} />
+        <WaterfallCanvas config={config} onFrame={onFrame} dbfsFloor={dbfsFloor} dbfsCeiling={dbfsCeiling} />
 
         {/* Error / offline panel */}
         {(connectionState === "error" || connectionState === "offline") && (
