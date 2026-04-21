@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from agent.app.factories import make_standard_factories
 from agent.config import AgentConfig
-from agent.domain import Endianness, IQDescriptor, Layout, RFConfig, SampleFormat, WireEncoding
+from agent.domain import (
+    Endianness,
+    IQDescriptor,
+    Layout,
+    RFConfig,
+    SampleFormat,
+)
 from agent.config import AgentIdentity, ServerConfig
 from agent.transport.transport import WebSocketTransport
 
