@@ -256,17 +256,17 @@ def test_viewer_subscription_has_send_queue():
 
 
 def test_live_agent_session_connected_at_is_set():
-    from datetime import UTC, datetime
+    from datetime import datetime, timezone
 
-    before = datetime.now(UTC)
+    before = datetime.now(timezone.utc)
     s = make_session()
     assert s.connected_at >= before
 
 
 def test_viewer_subscription_subscribed_at_is_set():
-    from datetime import UTC, datetime
+    from datetime import datetime, timezone
 
-    before = datetime.now(UTC)
+    before = datetime.now(timezone.utc)
     v = make_viewer()
     assert v.subscribed_at >= before
 

@@ -111,6 +111,8 @@ def _parse_wav_header(data: bytes) -> tuple[SampleFormat, int, int]:
 
     if audio_format is None or num_channels is None or sample_rate is None:
         raise UnsupportedWavFormatError("WAV file is missing the fmt chunk")
+    if bits_per_sample is None:
+        raise UnsupportedWavFormatError("WAV fmt chunk is missing bits_per_sample")
     if data_offset is None:
         raise UnsupportedWavFormatError("WAV file is missing the data chunk")
     if num_channels != 2:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,7 +49,7 @@ async def revoke_token(db: AsyncSession, token_id: str, agent_id: str) -> AgentT
     token = await get_token_by_id(db, token_id, agent_id)
     if token is None or token.revoked_at is not None:
         return None
-    token.revoked_at = datetime.now(UTC)
+    token.revoked_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(token)
     return token
@@ -58,5 +58,5 @@ async def revoke_token(db: AsyncSession, token_id: str, agent_id: str) -> AgentT
 async def touch_last_used(db: AsyncSession, token_id: str) -> None:
     token = await db.get(AgentToken, token_id)
     if token:
-        token.last_used_at = datetime.now(UTC)
+        token.last_used_at = datetime.now(timezone.utc)
         await db.commit()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 
 @dataclass
@@ -14,8 +14,8 @@ class LiveAgentSession:
     user_id: str
     stream_id: str
     config_version: int
-    connected_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    last_heartbeat_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    connected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_heartbeat_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_status: str | None = None
 
     bin_count: int = 0
@@ -41,4 +41,4 @@ class ViewerSubscription:
         default_factory=lambda: asyncio.Queue(maxsize=_VIEWER_QUEUE_SIZE)
     )
     closed: asyncio.Event = field(default_factory=asyncio.Event)
-    subscribed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    subscribed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

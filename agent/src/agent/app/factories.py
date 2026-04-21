@@ -21,13 +21,15 @@ from typing import Any
 from agent.app.runner import RunnerFactories
 from agent.config import AgentConfig
 from agent.domain import AgentMetrics
+from agent.processing import Processor
 from agent.processing.processor import IQProcessor
-from agent.protocol import JsonBase64Codec
+from agent.protocol import JsonBase64Codec, ProtocolCodec
 from agent.session import Session
 from agent.source.base import IQSource
 from agent.telemetry.loop import TelemetryLoop
 from agent.telemetry.metrics import MetricsCollector
 from agent.telemetry.stage_timing import PipelineTiming
+from agent.transport import Transport
 from agent.transport.transport import WebSocketTransport
 
 
@@ -35,7 +37,7 @@ class _TransportSender:
     """Adapts (WebSocketTransport, JsonBase64Codec)
     to TelemetryLoop's TelemetrySender."""
 
-    def __init__(self, transport: WebSocketTransport, codec: JsonBase64Codec) -> None:
+    def __init__(self, transport: Transport, codec: ProtocolCodec) -> None:
         self._transport = transport
         self._codec = codec
 
@@ -67,13 +69,13 @@ def make_standard_factories(
 
     codec = JsonBase64Codec()
 
-    def make_transport(cfg: AgentConfig) -> WebSocketTransport:
+    def make_transport(cfg: AgentConfig) -> Transport:
         return WebSocketTransport()
 
-    def make_codec(cfg: AgentConfig) -> JsonBase64Codec:
+    def make_codec(cfg: AgentConfig) -> ProtocolCodec:
         return codec
 
-    def make_processor(cfg: AgentConfig) -> IQProcessor:
+    def make_processor(cfg: AgentConfig) -> Processor:
         return IQProcessor(
             descriptor=cfg.iq,
             rf_config=cfg.rf,
@@ -81,9 +83,7 @@ def make_standard_factories(
             metrics=shared_metrics,
         )
 
-    def make_session(
-        cfg: AgentConfig, t: WebSocketTransport, c: JsonBase64Codec
-    ) -> Session:
+    def make_session(cfg: AgentConfig, t: Transport, c: ProtocolCodec) -> Session:
         return Session(
             config=cfg,
             transport=t,
@@ -95,9 +95,9 @@ def make_standard_factories(
     def make_telemetry(
         cfg: AgentConfig,
         session: Any,
-        _metrics: Any,
-        t: WebSocketTransport,
-        c: JsonBase64Codec,
+        _metrics: MetricsCollector,
+        t: Transport,
+        c: ProtocolCodec,
     ) -> TelemetryLoop:
         return TelemetryLoop(
             node_id=cfg.identity.node_id,

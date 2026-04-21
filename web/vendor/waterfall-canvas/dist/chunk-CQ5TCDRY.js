@@ -1,0 +1,748 @@
+// src/colormap.ts
+function interpolateGrayscale(t) {
+  const v = Math.round(Math.max(0, Math.min(1, t)) * 255);
+  return [v, v, v];
+}
+function interpolateHot(t) {
+  t = Math.max(0, Math.min(1, t));
+  if (t < 0.333) {
+    return [Math.round(t / 0.333 * 255), 0, 0];
+  } else if (t < 0.666) {
+    return [255, Math.round((t - 0.333) / 0.333 * 255), 0];
+  } else {
+    return [255, 255, Math.round((t - 0.666) / 0.334 * 255)];
+  }
+}
+function interpolateTurbo(t) {
+  t = Math.max(0, Math.min(1, t));
+  return [
+    Math.max(0, Math.min(255, Math.round(34.61 + t * (1172.33 - t * (10793.56 - t * (33300.12 - t * (38394.49 - t * 14825.05))))))),
+    Math.max(0, Math.min(255, Math.round(23.31 + t * (557.33 + t * (1225.33 - t * (3574.96 - t * (1073.77 + t * 707.56))))))),
+    Math.max(0, Math.min(255, Math.round(27.2 + t * (3211.1 - t * (15327.97 - t * (27814 - t * (22569.18 - t * 6838.66)))))))
+  ];
+}
+function buildLut(colorMap) {
+  const lut = new Uint8Array(256 * 3);
+  for (let i = 0; i < 256; i++) {
+    const [r, g, b] = colorMap(i / 255);
+    lut[i * 3] = r;
+    lut[i * 3 + 1] = g;
+    lut[i * 3 + 2] = b;
+  }
+  return lut;
+}
+function normalizeValue(value, precision) {
+  if (precision === "uint16") return value / 65535;
+  if (precision === "uint8") return value / 255;
+  return value / 100;
+}
+
+// src/WaterfallRenderer.ts
+var WaterfallRenderer = class {
+  constructor(canvas, options = {}) {
+    /** Pixel height of each time-slice row. Higher = faster-looking waterfall. Default: 1 */
+    this.rowHeight = 1;
+    this._sensitivity = { low: 0, high: 1 };
+    this._gamma = 1;
+    this.targetStart = 0;
+    this.targetEnd = 0;
+    this.timeBarNow = 0;
+    // snapshot of Date.now() taken at each push
+    this.imgData = null;
+    this.viewImg = null;
+    this.ctx = null;
+    // Optional buffers — allocated when tooltip or timeBar is true
+    this.valueBuffer = null;
+    // normalized [0,1] per ring pixel
+    this.timeBuffer = null;
+    // ms epoch per row
+    this.tooltipEl = null;
+    // Ring cursor: headRow is the physical row index of the most-recently-written row
+    this.headRow = 0;
+    this.dirty = false;
+    this.viewDirty = true;
+    this.viewStart = 0;
+    this.viewEnd = 0;
+    this.ringWidth = 0;
+    this.totalSamples = 0;
+    this.bandRanges = [];
+    this.initialized = false;
+    this.rafId = 0;
+    this.pendingPushMs = -1;
+    this.dragActive = false;
+    this.lastDragPos = 0;
+    this.lastMouseEvent = null;
+    this.canvas = canvas;
+    this.rowCount = options.rowCount ?? 400;
+    this.bufferWidth = options.bufferWidth ?? 4096;
+    this.lut = buildLut(options.colorMap ?? interpolateGrayscale);
+    this.tooltipEnabled = options.tooltip ?? false;
+    this.timeBarEnabled = options.timeBar ?? false;
+    this.timeBarDynamic = options.timeBarDynamic ?? false;
+    this.minSpan = options.minSpan ?? 32;
+    this.lazyThreshold = options.lazyThreshold ?? 4;
+    this.freqFormat = options.freqFormat ?? ((hz) => hz.toFixed(1));
+    this.valueFormat = options.valueFormat ?? ((t) => (t * 100).toFixed(1) + "%");
+    this.direction = options.direction ?? "top";
+    this.isHorizontal = this.direction === "left" || this.direction === "right";
+    this.flipFreq = options.flipFreq ?? false;
+    this.flipFreqActual = this.isHorizontal ? !this.flipFreq : this.flipFreq;
+    this.smoothPixels = options.smoothPixels ?? false;
+    this.smoothZoom = options.smoothZoom ?? false;
+    if (options.sensitivity) this._sensitivity = options.sensitivity;
+    if (options.gamma !== void 0) this._gamma = options.gamma;
+    if (this.tooltipEnabled) {
+      const el = document.createElement("div");
+      el.style.cssText = [
+        "position:fixed",
+        "display:none",
+        "pointer-events:none",
+        "z-index:9999",
+        "background:rgba(0,0,0,0.82)",
+        "color:#e2e8f0",
+        "font:12px/1.6 monospace",
+        "padding:6px 10px",
+        "border-radius:5px",
+        "border:1px solid rgba(255,255,255,0.12)",
+        "white-space:pre",
+        "box-shadow:0 2px 8px rgba(0,0,0,0.5)"
+      ].join(";");
+      document.body.appendChild(el);
+      this.tooltipEl = el;
+    }
+    this._boundLoop = this._loop.bind(this);
+    this._boundWheel = this._onWheel.bind(this);
+    this._boundMouseDown = this._onMouseDown.bind(this);
+    this._boundMouseMove = this._onMouseMove.bind(this);
+    this._boundMouseUp = this._onMouseUp.bind(this);
+    this.ro = new ResizeObserver(() => {
+      this._resizeCanvas();
+      this.viewDirty = true;
+    });
+    this.ro.observe(canvas);
+    this._resizeCanvas();
+    canvas.style.cursor = "grab";
+    canvas.addEventListener("wheel", this._boundWheel, { passive: false });
+    canvas.addEventListener("mousedown", this._boundMouseDown);
+    canvas.addEventListener("mousemove", this._boundMouseMove);
+    canvas.addEventListener("mouseup", this._boundMouseUp);
+    canvas.addEventListener("mouseleave", this._boundMouseUp);
+    this.rafId = requestAnimationFrame(this._boundLoop);
+  }
+  get sensitivity() {
+    return this._sensitivity;
+  }
+  set sensitivity(v) {
+    this._sensitivity = v;
+    this.viewDirty = true;
+  }
+  get gamma() {
+    return this._gamma;
+  }
+  set gamma(v) {
+    this._gamma = v;
+    this.viewDirty = true;
+  }
+  push(frame) {
+    if (!this.initialized) this._init(frame);
+    const t0 = performance.now();
+    this._pushRow(frame);
+    this.pendingPushMs = performance.now() - t0;
+  }
+  /**
+   * Download the full ring buffer as an image file.
+   * BMP is uncompressed and has no size limit; PNG is tiled when width > 32,767px.
+   */
+  exportImage(options = {}) {
+    const img = this.imgData;
+    if (!img) return;
+    const { format = "bmp", filename = "waterfall" } = options;
+    const getOrdered = () => {
+      const ringW = this.ringWidth;
+      const rc = this.rowCount;
+      const ordered2 = new Uint8ClampedArray(ringW * rc * 4);
+      for (let y = 0; y < rc; y++) {
+        const physRow = (this.headRow + y) % rc;
+        const src = physRow * ringW * 4;
+        ordered2.set(img.data.subarray(src, src + ringW * 4), y * ringW * 4);
+      }
+      return new ImageData(ordered2, ringW, rc);
+    };
+    if (format === "bmp") {
+      setTimeout(() => this._triggerDownload(this._encodeBmp(getOrdered()), `${filename}.bmp`), 0);
+      return;
+    }
+    const ordered = getOrdered();
+    const totalW = ordered.width;
+    const h = ordered.height;
+    const tileW = 3e4;
+    const numTiles = Math.ceil(totalW / tileW);
+    for (let t = 0; t < numTiles; t++) {
+      const x0 = t * tileW;
+      const w = Math.min(tileW, totalW - x0);
+      const tileData = new Uint8ClampedArray(w * h * 4);
+      for (let row = 0; row < h; row++) {
+        const src = (row * totalW + x0) * 4;
+        tileData.set(ordered.data.subarray(src, src + w * 4), row * w * 4);
+      }
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      c.getContext("2d").putImageData(new ImageData(tileData, w, h), 0, 0);
+      const name = numTiles > 1 ? `${filename}_${t + 1}of${numTiles}.png` : `${filename}.png`;
+      setTimeout(() => {
+        c.toBlob((blob) => {
+          if (blob) this._triggerDownload(blob, name);
+        }, "image/png");
+      }, t * 300);
+    }
+  }
+  destroy() {
+    cancelAnimationFrame(this.rafId);
+    this.ro.disconnect();
+    this.canvas.removeEventListener("wheel", this._boundWheel);
+    this.canvas.removeEventListener("mousedown", this._boundMouseDown);
+    this.canvas.removeEventListener("mousemove", this._boundMouseMove);
+    this.canvas.removeEventListener("mouseup", this._boundMouseUp);
+    this.canvas.removeEventListener("mouseleave", this._boundMouseUp);
+    this.tooltipEl?.remove();
+    this.imgData = null;
+    this.viewImg = null;
+    this.ctx = null;
+    this.valueBuffer = null;
+    this.timeBuffer = null;
+    this.tooltipEl = null;
+    this.initialized = false;
+  }
+  // ── Private ────────────────────────────────────────────────────────────────
+  _resizeCanvas() {
+    const canvas = this.canvas;
+    if (this.isHorizontal) {
+      canvas.width = this.rowCount;
+      canvas.height = canvas.offsetHeight || 400;
+    } else {
+      canvas.width = canvas.offsetWidth || 800;
+      canvas.height = this.rowCount;
+    }
+  }
+  _bandSampleCount(band) {
+    if (band.precision === "float32") return band.length / 4;
+    if (band.precision === "uint16") return band.length / 2;
+    return band.length;
+  }
+  _init(f) {
+    let total = 0;
+    this.bandRanges = [];
+    for (const band of f.header) {
+      const count = this._bandSampleCount(band);
+      this.bandRanges.push({
+        start: total,
+        end: total + count,
+        id: band.band_id,
+        precision: band.precision,
+        freqStart: band.band_start,
+        freqEnd: band.band_end
+      });
+      total += count;
+    }
+    this.totalSamples = total;
+    this.ringWidth = this.bufferWidth > 0 ? Math.min(total, this.bufferWidth) : total;
+    const img = new ImageData(this.ringWidth, this.rowCount);
+    new Uint32Array(img.data.buffer).fill(4278190080);
+    this.imgData = img;
+    this.ctx = this.canvas.getContext("2d");
+    this.valueBuffer = new Float32Array(this.ringWidth * this.rowCount);
+    if (this.tooltipEnabled || this.timeBarEnabled) {
+      this.timeBuffer = new Float64Array(this.rowCount);
+    }
+    this.headRow = 0;
+    this.viewStart = 0;
+    this.viewEnd = this.ringWidth;
+    this.targetStart = 0;
+    this.targetEnd = this.ringWidth;
+    this.initialized = true;
+    this.dirty = true;
+    this.viewDirty = true;
+  }
+  _pushRow(f) {
+    const img = this.imgData;
+    if (!img) return;
+    const ringW = this.ringWidth;
+    const total = this.totalSamples;
+    const rowH = Math.max(1, this.rowHeight | 0);
+    const rc = this.rowCount;
+    const buf = img.data;
+    const lut = this.lut;
+    this.headRow = (this.headRow - rowH + rc) % rc;
+    const head = this.headRow;
+    let px = head * ringW * 4;
+    const sensLow = this._sensitivity.low;
+    const sensSpan = this._sensitivity.high - sensLow || 1;
+    const gamma = this._gamma;
+    if (ringW === total) {
+      let vi = head * ringW;
+      for (const band of f.header) {
+        const samples = f.bands[band.band_id];
+        if (!samples) continue;
+        const precision = band.precision;
+        for (let i = 0; i < samples.length; i++) {
+          const raw = normalizeValue(samples[i], precision);
+          this.valueBuffer[vi++] = raw;
+          let t = Math.min(1, Math.max(0, (raw - sensLow) / sensSpan));
+          if (gamma !== 1) t = Math.pow(t, gamma);
+          const idx = Math.min(255, Math.max(0, Math.round(t * 255)));
+          buf[px++] = lut[idx * 3];
+          buf[px++] = lut[idx * 3 + 1];
+          buf[px++] = lut[idx * 3 + 2];
+          buf[px++] = 255;
+        }
+      }
+    } else {
+      for (let x = 0; x < ringW; x++) {
+        const srcX = x * total / ringW | 0;
+        let raw = 0;
+        for (const range of this.bandRanges) {
+          if (srcX < range.end) {
+            raw = normalizeValue(f.bands[range.id][srcX - range.start], range.precision);
+            break;
+          }
+        }
+        this.valueBuffer[head * ringW + x] = raw;
+        let t = Math.min(1, Math.max(0, (raw - sensLow) / sensSpan));
+        if (gamma !== 1) t = Math.pow(t, gamma);
+        const idx = Math.min(255, Math.max(0, Math.round(t * 255)));
+        buf[px++] = lut[idx * 3];
+        buf[px++] = lut[idx * 3 + 1];
+        buf[px++] = lut[idx * 3 + 2];
+        buf[px++] = 255;
+      }
+    }
+    const src0 = head * ringW * 4;
+    for (let row = 1; row < rowH; row++) {
+      const physRow = (head + row) % rc;
+      buf.copyWithin(physRow * ringW * 4, src0, src0 + ringW * 4);
+      this.valueBuffer.copyWithin(physRow * ringW, head * ringW, head * ringW + ringW);
+    }
+    if (this.timeBuffer) {
+      const ts = f.header[0]?.sent_at ?? Date.now();
+      for (let row = 0; row < rowH; row++) {
+        this.timeBuffer[(head + row) % rc] = ts;
+      }
+      this.timeBarNow = Date.now();
+    }
+    this.dirty = true;
+  }
+  /** Render for 'top' and 'bottom' directions (frequency on x-axis, time on y-axis). */
+  _renderViewport() {
+    const vb = this.valueBuffer;
+    const vData = this.viewImg;
+    if (!vb || !vData) return;
+    const ringW = this.ringWidth;
+    const rc = this.rowCount;
+    const vs = this.viewStart | 0;
+    const span = (this.viewEnd | 0) - vs;
+    if (span <= 0) return;
+    const dst = vData.data;
+    const w = vData.width;
+    const head = this.headRow;
+    const flipY = this.direction === "bottom";
+    const lut = this.lut;
+    const sensLow = this._sensitivity.low;
+    const sensSpan = this._sensitivity.high - sensLow || 1;
+    const gam = this._gamma;
+    for (let y = 0; y < rc; y++) {
+      const physRow = (head + y) % rc;
+      const vRow = physRow * ringW;
+      const dstRow = (flipY ? rc - 1 - y : y) * w;
+      for (let x = 0; x < w; x++) {
+        const xf = this.flipFreqActual ? w - 1 - x : x;
+        const srcXf = vs + (xf + 0.5) * span / w;
+        const di = (dstRow + x) * 4;
+        let srcX;
+        if (this.smoothPixels) {
+          const lo = Math.max(vs, Math.floor(srcXf));
+          const hi = Math.min(ringW - 1, lo + 1);
+          const frac = srcXf - lo;
+          const r0 = vb[vRow + lo];
+          const r1 = vb[vRow + hi];
+          srcX = -1;
+          const raw2 = r0 + (r1 - r0) * frac;
+          const t12 = Math.min(1, Math.max(0, (raw2 - sensLow) / sensSpan));
+          const t22 = gam !== 1 ? Math.pow(t12, gam) : t12;
+          const idx2 = Math.min(255, Math.max(0, Math.round(t22 * 255)));
+          dst[di] = lut[idx2 * 3];
+          dst[di + 1] = lut[idx2 * 3 + 1];
+          dst[di + 2] = lut[idx2 * 3 + 2];
+          dst[di + 3] = 255;
+          continue;
+        } else {
+          const x0 = vs + (xf * span / w | 0);
+          const x1 = Math.min(ringW, vs + ((xf + 1) * span / w | 0));
+          srcX = srcXf | 0;
+          if (x1 > x0 + 1 && x1 - x0 <= this.lazyThreshold) {
+            let bestVal = -1;
+            for (let sx = x0; sx < x1; sx++) {
+              const v = vb[vRow + sx];
+              if (v > bestVal) {
+                bestVal = v;
+                srcX = sx;
+              }
+            }
+          } else if (x1 > x0 + 1) {
+            const stride = this.lazyThreshold;
+            const firstGrid = Math.ceil(x0 / stride) * stride;
+            if (firstGrid < x1) {
+              let bestVal = -1;
+              for (let sx = firstGrid; sx < x1; sx += stride) {
+                const v = vb[vRow + sx];
+                if (v > bestVal) {
+                  bestVal = v;
+                  srcX = sx;
+                }
+              }
+            }
+          }
+        }
+        const raw = vb[vRow + srcX];
+        const t1 = Math.min(1, Math.max(0, (raw - sensLow) / sensSpan));
+        const t2 = gam !== 1 ? Math.pow(t1, gam) : t1;
+        const idx = Math.min(255, Math.max(0, Math.round(t2 * 255)));
+        dst[di] = lut[idx * 3];
+        dst[di + 1] = lut[idx * 3 + 1];
+        dst[di + 2] = lut[idx * 3 + 2];
+        dst[di + 3] = 255;
+      }
+    }
+  }
+  /** Render for 'left' and 'right' directions (frequency on y-axis, time on x-axis). */
+  _renderViewportHorizontal() {
+    const vb = this.valueBuffer;
+    const vData = this.viewImg;
+    if (!vb || !vData) return;
+    const ringW = this.ringWidth;
+    const rc = this.rowCount;
+    const vs = this.viewStart | 0;
+    const span = (this.viewEnd | 0) - vs;
+    if (span <= 0) return;
+    const dst = vData.data;
+    const canvasH = vData.height;
+    const head = this.headRow;
+    const flipX = this.direction === "right";
+    const lut = this.lut;
+    const sensLow = this._sensitivity.low;
+    const sensSpan = this._sensitivity.high - sensLow || 1;
+    const gam = this._gamma;
+    for (let x = 0; x < rc; x++) {
+      const lr = flipX ? rc - 1 - x : x;
+      const physRow = (head + lr) % rc;
+      const vRow = physRow * ringW;
+      for (let y = 0; y < canvasH; y++) {
+        const yf = this.flipFreqActual ? canvasH - 1 - y : y;
+        const srcXf = vs + (yf + 0.5) * span / canvasH;
+        const di = (y * rc + x) * 4;
+        if (this.smoothPixels) {
+          const lo = Math.max(vs, Math.floor(srcXf));
+          const hi = Math.min(ringW - 1, lo + 1);
+          const frac = srcXf - lo;
+          const r0 = vb[vRow + lo];
+          const r1 = vb[vRow + hi];
+          const raw = r0 + (r1 - r0) * frac;
+          const t1 = Math.min(1, Math.max(0, (raw - sensLow) / sensSpan));
+          const t2 = gam !== 1 ? Math.pow(t1, gam) : t1;
+          const idx = Math.min(255, Math.max(0, Math.round(t2 * 255)));
+          dst[di] = lut[idx * 3];
+          dst[di + 1] = lut[idx * 3 + 1];
+          dst[di + 2] = lut[idx * 3 + 2];
+          dst[di + 3] = 255;
+        } else {
+          const y0 = vs + (yf * span / canvasH | 0);
+          const y1 = Math.min(ringW, vs + ((yf + 1) * span / canvasH | 0));
+          let srcX = srcXf | 0;
+          if (y1 > y0 + 1 && y1 - y0 <= this.lazyThreshold) {
+            let bestVal = -1;
+            for (let sx = y0; sx < y1; sx++) {
+              const v = vb[vRow + sx];
+              if (v > bestVal) {
+                bestVal = v;
+                srcX = sx;
+              }
+            }
+          } else if (y1 > y0 + 1) {
+            const stride = this.lazyThreshold;
+            const firstGrid = Math.ceil(y0 / stride) * stride;
+            if (firstGrid < y1) {
+              let bestVal = -1;
+              for (let sx = firstGrid; sx < y1; sx += stride) {
+                const v = vb[vRow + sx];
+                if (v > bestVal) {
+                  bestVal = v;
+                  srcX = sx;
+                }
+              }
+            }
+          }
+          const raw = vb[vRow + srcX];
+          const t1 = Math.min(1, Math.max(0, (raw - sensLow) / sensSpan));
+          const t2 = gam !== 1 ? Math.pow(t1, gam) : t1;
+          const idx = Math.min(255, Math.max(0, Math.round(t2 * 255)));
+          dst[di] = lut[idx * 3];
+          dst[di + 1] = lut[idx * 3 + 1];
+          dst[di + 2] = lut[idx * 3 + 2];
+          dst[di + 3] = 255;
+        }
+      }
+    }
+  }
+  _drawTimeBar() {
+    const ctx = this.ctx;
+    const tb = this.timeBuffer;
+    if (!ctx || !tb || !this.initialized) return;
+    const barW = 76;
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(0, 0, barW, this.rowCount);
+    ctx.font = "11px monospace";
+    ctx.fillStyle = "rgba(200,210,220,0.9)";
+    ctx.textBaseline = "middle";
+    const newestTs = tb[this.headRow];
+    if (newestTs <= 0) return;
+    const sampleRows = Math.min(this.rowCount - 1, 20);
+    const olderPhys = (this.headRow + sampleRows) % this.rowCount;
+    const rowIntervalMs = sampleRows > 0 && tb[olderPhys] > 0 ? (newestTs - tb[olderPhys]) / sampleRows : 0;
+    const now = this.timeBarDynamic ? Date.now() : this.timeBarNow;
+    const elapsedNewest = now - newestTs;
+    const step = 50;
+    for (let y = 0; y < this.rowCount; y += step) {
+      const diffMs = elapsedNewest + y * rowIntervalMs;
+      const diffS = diffMs / 1e3;
+      let label;
+      if (diffS < 60) label = `${diffS.toFixed(1)}s ago`;
+      else if (diffS < 3600) label = `${(diffS / 60).toFixed(1)}m ago`;
+      else label = `${(diffS / 3600).toFixed(1)}h ago`;
+      ctx.fillText(label, 4, y + step / 2);
+    }
+  }
+  _loop() {
+    const canvas = this.canvas;
+    const ctx = this.ctx;
+    if (this.smoothZoom && this.initialized) {
+      const alpha = 0.18;
+      const ds = (this.targetStart - this.viewStart) * alpha;
+      const de = (this.targetEnd - this.viewEnd) * alpha;
+      if (Math.abs(ds) > 0.05 || Math.abs(de) > 0.05) {
+        this.viewStart += ds;
+        this.viewEnd += de;
+        this.viewDirty = true;
+      } else if (this.viewStart !== this.targetStart || this.viewEnd !== this.targetEnd) {
+        this.viewStart = this.targetStart;
+        this.viewEnd = this.targetEnd;
+        this.viewDirty = true;
+      }
+    }
+    if (canvas.width > 0 && canvas.height > 0 && ctx && (this.dirty || this.viewDirty)) {
+      if (!this.viewImg || this.viewImg.width !== canvas.width || this.viewImg.height !== canvas.height) {
+        this.viewImg = new ImageData(canvas.width, canvas.height);
+      }
+      const t0 = performance.now();
+      if (this.isHorizontal) {
+        this._renderViewportHorizontal();
+      } else {
+        this._renderViewport();
+      }
+      ctx.putImageData(this.viewImg, 0, 0);
+      if (this.timeBarEnabled && !this.isHorizontal) this._drawTimeBar();
+      const renderMs = performance.now() - t0;
+      if (this.pendingPushMs >= 0) {
+        const span = this.viewEnd - this.viewStart;
+        const dimPx = this.isHorizontal ? canvas.height || 1 : canvas.width || 1;
+        const isLazy = !!this.valueBuffer && span / dimPx > this.lazyThreshold;
+        this.onMetrics?.(this.pendingPushMs, renderMs, isLazy);
+        this.pendingPushMs = -1;
+      }
+      if (this.lastMouseEvent) this._updateTooltip(this.lastMouseEvent);
+      this.dirty = false;
+      this.viewDirty = false;
+    }
+    this.rafId = requestAnimationFrame(this._boundLoop);
+  }
+  _updateTooltip(e) {
+    const el = this.tooltipEl;
+    const valueBuffer = this.valueBuffer;
+    const timeBuffer = this.timeBuffer;
+    if (!el || !valueBuffer || !timeBuffer || !this.initialized) return;
+    const ringW = this.ringWidth;
+    const vs = this.viewStart | 0;
+    const span = (this.viewEnd | 0) - vs;
+    const rect = this.canvas.getBoundingClientRect();
+    let rx;
+    let physRy;
+    if (this.isHorizontal) {
+      const timeFrac = (e.clientX - rect.left) / rect.width;
+      const freqFracRaw = (e.clientY - rect.top) / rect.height;
+      const freqFrac = this.flipFreqActual ? 1 - freqFracRaw : freqFracRaw;
+      rx = Math.min(ringW - 1, Math.max(0, vs + ((freqFrac + 0.5 / rect.height) * span | 0)));
+      const lr = this.direction === "right" ? Math.min(this.rowCount - 1, Math.max(0, (1 - timeFrac) * this.rowCount | 0)) : Math.min(this.rowCount - 1, Math.max(0, timeFrac * this.rowCount | 0));
+      physRy = (this.headRow + lr) % this.rowCount;
+    } else {
+      const canvasFrac = (e.clientX - rect.left) / rect.width;
+      const rowFrac = (e.clientY - rect.top) / rect.height;
+      rx = Math.min(ringW - 1, Math.max(0, vs + ((canvasFrac + 0.5 / rect.width) * span | 0)));
+      const logicRy = this.direction === "bottom" ? Math.min(this.rowCount - 1, Math.max(0, (1 - rowFrac) * this.rowCount | 0)) : Math.min(this.rowCount - 1, Math.max(0, rowFrac * this.rowCount | 0));
+      physRy = (this.headRow + logicRy) % this.rowCount;
+    }
+    const freqFracForBandRaw = this.isHorizontal ? (e.clientY - rect.top) / rect.height : (e.clientX - rect.left) / rect.width;
+    const freqFracForBand = this.flipFreqActual ? 1 - freqFracForBandRaw : freqFracForBandRaw;
+    const ringXf = vs + freqFracForBand * span;
+    const srcXf = ringW === this.totalSamples ? ringXf : ringXf * (this.totalSamples / ringW);
+    const srcXc = Math.max(0, Math.min(this.totalSamples - 1, Math.round(srcXf)));
+    let band = this.bandRanges[this.bandRanges.length - 1];
+    for (const range of this.bandRanges) {
+      if (srcXc < range.end) {
+        band = range;
+        break;
+      }
+    }
+    const level = valueBuffer[physRy * ringW + rx];
+    const ts = timeBuffer[physRy];
+    const timeStr = ts > 0 ? new Date(ts).toISOString().slice(11, 23) + " UTC" : "\u2014";
+    const offsetInBand = Math.max(0, srcXc - band.start);
+    const bandSamples = band.end - band.start;
+    const freq = band.freqStart + offsetInBand / bandSamples * (band.freqEnd - band.freqStart);
+    const freqLine = `${band.id}  (${this.freqFormat(band.freqStart)} \u2013 ${this.freqFormat(band.freqEnd)})
+freq:  ${this.freqFormat(freq)}
+`;
+    el.textContent = `${freqLine}time:  ${timeStr}
+value: ${this.valueFormat(level)}`;
+    el.style.display = "block";
+    const pad = 16;
+    const tw = el.offsetWidth || 140;
+    const th = el.offsetHeight || 80;
+    const left = e.clientX + 14 + tw > window.innerWidth ? e.clientX - tw - 6 : e.clientX + 14;
+    const top = e.clientY - 10 < pad ? e.clientY + 14 : e.clientY - 10;
+    el.style.left = `${Math.max(pad, Math.min(window.innerWidth - tw - pad, left))}px`;
+    el.style.top = `${Math.max(pad, Math.min(window.innerHeight - th - pad, top))}px`;
+  }
+  _encodeBmp(img) {
+    const w = img.width;
+    const h = img.height;
+    const src = img.data;
+    const rowBytes = w * 3;
+    const padding = (4 - rowBytes % 4) % 4;
+    const paddedRowBytes = rowBytes + padding;
+    const pixelDataSize = paddedRowBytes * h;
+    const buf = new ArrayBuffer(54 + pixelDataSize);
+    const view = new DataView(buf);
+    const bytes = new Uint8Array(buf);
+    bytes[0] = 66;
+    bytes[1] = 77;
+    view.setUint32(2, 54 + pixelDataSize, true);
+    view.setUint32(10, 54, true);
+    view.setUint32(14, 40, true);
+    view.setInt32(18, w, true);
+    view.setInt32(22, -h, true);
+    view.setUint16(26, 1, true);
+    view.setUint16(28, 24, true);
+    view.setUint32(34, pixelDataSize, true);
+    let dst = 54;
+    for (let row = 0; row < h; row++) {
+      const rowStart = row * w * 4;
+      for (let x = 0; x < w; x++) {
+        const s = rowStart + x * 4;
+        bytes[dst++] = src[s + 2];
+        bytes[dst++] = src[s + 1];
+        bytes[dst++] = src[s];
+      }
+      dst += padding;
+    }
+    return new Blob([buf], { type: "image/bmp" });
+  }
+  _triggerDownload(blob, filename) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  }
+  _onWheel(e) {
+    e.preventDefault();
+    const ringW = this.ringWidth;
+    if (!ringW) return;
+    const baseStart = this.smoothZoom ? this.targetStart : this.viewStart;
+    const baseEnd = this.smoothZoom ? this.targetEnd : this.viewEnd;
+    const span = baseEnd - baseStart;
+    const factor = e.deltaY > 0 ? 1.15 : 0.85;
+    const newSpan = Math.max(this.minSpan, Math.min(ringW, span * factor));
+    const cursorFrac = this.isHorizontal ? this.flipFreqActual ? 1 - e.offsetY / this.canvas.clientHeight : e.offsetY / this.canvas.clientHeight : this.flipFreqActual ? 1 - e.offsetX / this.canvas.clientWidth : e.offsetX / this.canvas.clientWidth;
+    const cursorSample = baseStart + cursorFrac * span;
+    let newStart = cursorSample - cursorFrac * newSpan;
+    let newEnd = newStart + newSpan;
+    if (newStart < 0) {
+      newStart = 0;
+      newEnd = newSpan;
+    }
+    if (newEnd > ringW) {
+      newEnd = ringW;
+      newStart = ringW - newSpan;
+    }
+    if (this.smoothZoom) {
+      this.targetStart = Math.max(0, newStart);
+      this.targetEnd = Math.min(ringW, newEnd);
+    } else {
+      this.viewStart = Math.max(0, newStart);
+      this.viewEnd = Math.min(ringW, newEnd);
+    }
+    this.viewDirty = true;
+  }
+  _onMouseDown(e) {
+    this.dragActive = true;
+    this.lastDragPos = this.isHorizontal ? e.clientY : e.clientX;
+    this.lastMouseEvent = null;
+    this.canvas.style.cursor = "grabbing";
+    if (this.tooltipEl) this.tooltipEl.style.display = "none";
+  }
+  _onMouseMove(e) {
+    if (this.dragActive) {
+      const ringW = this.ringWidth;
+      if (!ringW) return;
+      const span = this.viewEnd - this.viewStart;
+      const clientPos = this.isHorizontal ? e.clientY : e.clientX;
+      const clientSz = this.isHorizontal ? this.canvas.clientHeight : this.canvas.clientWidth;
+      const sign = this.flipFreqActual ? -1 : 1;
+      const dx = sign * ((clientPos - this.lastDragPos) / clientSz) * span;
+      this.lastDragPos = clientPos;
+      let newStart = this.viewStart - dx;
+      let newEnd = this.viewEnd - dx;
+      if (newStart < 0) {
+        newEnd -= newStart;
+        newStart = 0;
+      }
+      if (newEnd > ringW) {
+        newStart -= newEnd - ringW;
+        newEnd = ringW;
+      }
+      this.viewStart = Math.max(0, newStart);
+      this.viewEnd = Math.min(ringW, newEnd);
+      this.viewDirty = true;
+    } else {
+      this.lastMouseEvent = e;
+      this._updateTooltip(e);
+    }
+  }
+  _onMouseUp() {
+    this.dragActive = false;
+    this.lastMouseEvent = null;
+    this.canvas.style.cursor = "grab";
+    if (this.tooltipEl) this.tooltipEl.style.display = "none";
+  }
+};
+
+export {
+  interpolateGrayscale,
+  interpolateHot,
+  interpolateTurbo,
+  buildLut,
+  normalizeValue,
+  WaterfallRenderer
+};
+//# sourceMappingURL=chunk-CQ5TCDRY.js.map
