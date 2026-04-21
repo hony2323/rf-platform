@@ -20,3 +20,4 @@ server/rf_platform.db
 agent-configs/
 .env.production
 Caddyfile
+/deployment_checklist
