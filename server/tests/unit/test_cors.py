@@ -69,9 +69,7 @@ def no_cors_app():
 
 
 async def test_preflight_allowed_origin(cors_app):
-    async with AsyncClient(
-        transport=ASGITransport(app=cors_app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=cors_app), base_url="http://test") as client:
         r = await client.options(
             "/auth/login",
             headers={
@@ -85,9 +83,7 @@ async def test_preflight_allowed_origin(cors_app):
 
 
 async def test_preflight_disallowed_origin(cors_app):
-    async with AsyncClient(
-        transport=ASGITransport(app=cors_app), base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=cors_app), base_url="http://test") as client:
         r = await client.options(
             "/auth/login",
             headers={
