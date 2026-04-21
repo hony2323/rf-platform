@@ -37,13 +37,14 @@ async def login(
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     cookie = make_session_cookie(user.id, settings.session_secret)
+    secure = settings.session_cookie_secure
     response.set_cookie(
         settings.session_cookie_name,
         cookie,
         httponly=True,
-        samesite="lax",
+        samesite="none" if secure else "lax",
         path="/",
-        secure=settings.session_cookie_secure,
+        secure=secure,
     )
     return UserResponse.model_validate(user)
 
