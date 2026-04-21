@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from server.sessions.models import LiveAgentSession, ViewerSubscription
 
@@ -57,7 +57,7 @@ class SessionRegistry:
         session = self._sessions.get(session_id)
         if session is None:
             return False
-        session.last_heartbeat_at = datetime.now(UTC)
+        session.last_heartbeat_at = datetime.now(timezone.utc)
         return True
 
     def update_status(self, session_id: str, status: str) -> bool:
