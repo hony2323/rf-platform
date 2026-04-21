@@ -33,7 +33,25 @@ async def client():
 
 
 @pytest.fixture
+async def secure_client(monkeypatch):
+    monkeypatch.setenv("RF_SESSION_COOKIE_SECURE", "true")
+    await db_module.init_db(":memory:")
+    app = create_app(":memory:")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
+
+
+@pytest.fixture
 async def registered_user(client: AsyncClient):
+    engine = db_module._engine
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        await users_repo.create_user(session, "alice@example.com", hash_password("secret123"))
+    return "alice@example.com", "secret123"
+
+
+@pytest.fixture
+async def registered_user_secure(secure_client: AsyncClient):
     engine = db_module._engine
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
@@ -97,6 +115,31 @@ async def test_logout_deletes_cookie_with_path(client: AsyncClient, registered_u
     resp = await client.post("/auth/logout")
     set_cookie = resp.headers["set-cookie"].lower()
     assert "path=/" in set_cookie
+    assert "samesite=lax" in set_cookie
+
+
+# --- secure=True (production) mode ---
+
+
+async def test_login_sets_secure_none_cookie(secure_client: AsyncClient, registered_user_secure):
+    email, password = registered_user_secure
+    resp = await secure_client.post("/auth/login", json={"email": email, "password": password})
+    assert resp.status_code == 200
+    set_cookie = resp.headers["set-cookie"].lower()
+    assert "httponly" in set_cookie
+    assert "samesite=none" in set_cookie
+    assert "secure" in set_cookie
+    assert "path=/" in set_cookie
+
+
+async def test_logout_deletes_secure_cookie(secure_client: AsyncClient, registered_user_secure):
+    email, password = registered_user_secure
+    await secure_client.post("/auth/login", json={"email": email, "password": password})
+    resp = await secure_client.post("/auth/logout")
+    set_cookie = resp.headers["set-cookie"].lower()
+    assert "path=/" in set_cookie
+    assert "samesite=none" in set_cookie
+    assert "secure" in set_cookie
 
 
 async def test_tampered_cookie_rejected(client: AsyncClient):

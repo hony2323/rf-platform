@@ -52,7 +52,14 @@ async def login(
 @router.post("/auth/logout", status_code=204)
 async def logout(request: Request, response: Response):
     settings = request.app.state.settings
-    response.delete_cookie(settings.session_cookie_name, path="/")
+    secure = settings.session_cookie_secure
+    response.delete_cookie(
+        settings.session_cookie_name,
+        path="/",
+        secure=secure,
+        httponly=True,
+        samesite="none" if secure else "lax",
+    )
 
 
 @router.get("/me", response_model=UserResponse)
