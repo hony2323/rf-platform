@@ -16,3 +16,5 @@ __pycache__/
 server/rf_platform.db
 
 .vscode/settings.json
+
+agent-configs/
