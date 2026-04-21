@@ -1,4 +1,5 @@
 """Smoke tests for the bootstrap command and settings loading."""
+
 from __future__ import annotations
 
 import pytest

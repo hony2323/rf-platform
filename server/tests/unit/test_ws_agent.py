@@ -23,6 +23,7 @@ from server.storage.repositories.agent_tokens import create_token
 # Lightweight ASGI WebSocket test client (same-loop, no TCP)
 # ---------------------------------------------------------------------------
 
+
 class _WS:
     """Drive a WebSocket endpoint via raw ASGI without a real network connection."""
 
@@ -35,9 +36,7 @@ class _WS:
             "path": path,
             "query_string": b"",
             "root_path": "",
-            "headers": [
-                (k.lower().encode(), v.encode()) for k, v in (headers or {}).items()
-            ],
+            "headers": [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()],
             "server": ("testserver", 80),
             "client": ("testclient", 0),
         }
@@ -50,9 +49,7 @@ class _WS:
 
     async def connect(self) -> None:
         await self._c2s.put({"type": "websocket.connect"})
-        self._task = asyncio.create_task(
-            self._app(self._scope, self._receive, self._send)
-        )
+        self._task = asyncio.create_task(self._app(self._scope, self._receive, self._send))
         get_task = asyncio.create_task(self._s2c.get())
         done, _ = await asyncio.wait(
             {get_task, self._task},
@@ -149,6 +146,7 @@ async def db_state():
 @pytest.fixture
 def app(db_state):
     from server.sessions.registry import SessionRegistry
+
     a = create_app(":memory:")
     a.state.registry = SessionRegistry()
     return a
@@ -157,6 +155,7 @@ def app(db_state):
 # ---------------------------------------------------------------------------
 # Message helpers
 # ---------------------------------------------------------------------------
+
 
 def _connect_msg() -> dict:
     return {
@@ -232,6 +231,7 @@ async def _do_full_handshake(ws: _WS, bin_count: int = 1024) -> str:
 # Auth failure tests — HTTP 401 before WS accept
 # ---------------------------------------------------------------------------
 
+
 async def test_no_auth_header_rejected(app):
     ws = _WS(app, "/ws/agent")
     with pytest.raises(ConnectionRefusedError):
@@ -264,6 +264,7 @@ async def test_valid_token_accepted(app, db_state):
 # ---------------------------------------------------------------------------
 # Handshake order enforcement
 # ---------------------------------------------------------------------------
+
 
 async def test_connect_ack_contains_session_id_and_encoding(app, db_state):
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
@@ -344,9 +345,14 @@ async def test_non_stream_config_after_connect_ack_rejected(app, db_state):
     await ws.send_json(_connect_msg())
     await ws.recv_json()  # connect_ack
     # Send heartbeat instead of stream_config
-    await ws.send_json({
-        "msg_type": "heartbeat", "node_id": "n", "session_id": "s", "timestamp_utc": "t",
-    })
+    await ws.send_json(
+        {
+            "msg_type": "heartbeat",
+            "node_id": "n",
+            "session_id": "s",
+            "timestamp_utc": "t",
+        }
+    )
     err = await ws.recv_json()
     assert err["msg_type"] == "error"
     assert err["code"] == "INVALID_FRAME"
@@ -357,6 +363,7 @@ async def test_non_stream_config_after_connect_ack_rejected(app, db_state):
 # ---------------------------------------------------------------------------
 # Session registry integration
 # ---------------------------------------------------------------------------
+
 
 async def test_session_registered_after_handshake(app, db_state):
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
@@ -382,6 +389,7 @@ async def test_session_deregistered_on_disconnect(app, db_state):
 # Frame loop messages
 # ---------------------------------------------------------------------------
 
+
 async def test_heartbeat_updates_timestamp(app, db_state):
 
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
@@ -389,12 +397,14 @@ async def test_heartbeat_updates_timestamp(app, db_state):
     session = app.state.registry.get_session(session_id)
     before = session.last_heartbeat_at
 
-    await ws.send_json({
-        "msg_type": "heartbeat",
-        "node_id": "node_x",
-        "session_id": session_id,
-        "timestamp_utc": "2026-01-01T00:00:05.000Z",
-    })
+    await ws.send_json(
+        {
+            "msg_type": "heartbeat",
+            "node_id": "node_x",
+            "session_id": session_id,
+            "timestamp_utc": "2026-01-01T00:00:05.000Z",
+        }
+    )
     # Give the handler a moment to process
     await asyncio.sleep(0)
     assert session.last_heartbeat_at >= before
@@ -419,18 +429,20 @@ async def test_agent_status_stored(app, db_state):
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
     session_id = await _do_full_handshake(ws)
 
-    await ws.send_json({
-        "msg_type": "agent_status",
-        "node_id": "node_x",
-        "session_id": session_id,
-        "timestamp_utc": "2026-01-01T00:00:05.000Z",
-        "cpu_usage_pct": 42,
-        "throttled": False,
-        "tx_bytes_per_sec": 500000,
-        "queue_depth": 2,
-        "queue_fill_pct": 10,
-        "drops": {"local_throttle": 0, "queue_overflow": 0, "server_rejected": 0},
-    })
+    await ws.send_json(
+        {
+            "msg_type": "agent_status",
+            "node_id": "node_x",
+            "session_id": session_id,
+            "timestamp_utc": "2026-01-01T00:00:05.000Z",
+            "cpu_usage_pct": 42,
+            "throttled": False,
+            "tx_bytes_per_sec": 500000,
+            "queue_depth": 2,
+            "queue_fill_pct": 10,
+            "drops": {"local_throttle": 0, "queue_overflow": 0, "server_rejected": 0},
+        }
+    )
     await asyncio.sleep(0)
     session = app.state.registry.get_session(session_id)
     assert session.last_status is not None
@@ -613,6 +625,7 @@ async def test_reconfig_updates_bin_count_for_validation(app, db_state):
 # Identity / session consistency validation
 # ---------------------------------------------------------------------------
 
+
 async def test_connect_node_id_mismatch_rejected(app, db_state):
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
     await ws.connect()
@@ -668,12 +681,14 @@ async def test_heartbeat_with_wrong_session_id_is_ignored_and_errors(app, db_sta
     session = app.state.registry.get_session(session_id)
     before = session.last_heartbeat_at
 
-    await ws.send_json({
-        "msg_type": "heartbeat",
-        "node_id": "node_x",
-        "session_id": "ses_wrong",
-        "timestamp_utc": "2026-01-01T00:00:05.000Z",
-    })
+    await ws.send_json(
+        {
+            "msg_type": "heartbeat",
+            "node_id": "node_x",
+            "session_id": "ses_wrong",
+            "timestamp_utc": "2026-01-01T00:00:05.000Z",
+        }
+    )
     err = await ws.recv_json()
     assert err["msg_type"] == "error"
     assert err["code"] == "INVALID_FRAME"
@@ -688,18 +703,20 @@ async def test_agent_status_with_wrong_session_id_is_ignored_and_errors(app, db_
     session = app.state.registry.get_session(session_id)
     assert session.last_status is None
 
-    await ws.send_json({
-        "msg_type": "agent_status",
-        "node_id": "node_x",
-        "session_id": "ses_wrong",
-        "timestamp_utc": "2026-01-01T00:00:05.000Z",
-        "cpu_usage_pct": 99,
-        "throttled": False,
-        "tx_bytes_per_sec": 0,
-        "queue_depth": 0,
-        "queue_fill_pct": 0,
-        "drops": {"local_throttle": 0, "queue_overflow": 0, "server_rejected": 0},
-    })
+    await ws.send_json(
+        {
+            "msg_type": "agent_status",
+            "node_id": "node_x",
+            "session_id": "ses_wrong",
+            "timestamp_utc": "2026-01-01T00:00:05.000Z",
+            "cpu_usage_pct": 99,
+            "throttled": False,
+            "tx_bytes_per_sec": 0,
+            "queue_depth": 0,
+            "queue_fill_pct": 0,
+            "drops": {"local_throttle": 0, "queue_overflow": 0, "server_rejected": 0},
+        }
+    )
     err = await ws.recv_json()
     assert err["msg_type"] == "error"
     assert err["code"] == "INVALID_FRAME"
@@ -730,12 +747,14 @@ async def test_mid_session_node_id_mismatch_is_ignored_and_errors(app, db_state)
     session = app.state.registry.get_session(session_id)
     before = session.last_heartbeat_at
 
-    await ws.send_json({
-        "msg_type": "heartbeat",
-        "node_id": "impostor_node",
-        "session_id": session_id,
-        "timestamp_utc": "2026-01-01T00:00:05.000Z",
-    })
+    await ws.send_json(
+        {
+            "msg_type": "heartbeat",
+            "node_id": "impostor_node",
+            "session_id": session_id,
+            "timestamp_utc": "2026-01-01T00:00:05.000Z",
+        }
+    )
     err = await ws.recv_json()
     assert err["msg_type"] == "error"
     assert err["code"] == "INVALID_FRAME"

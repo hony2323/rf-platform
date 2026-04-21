@@ -19,6 +19,7 @@ router = APIRouter(prefix="/agents")
 
 # --- Pydantic schemas ---
 
+
 class AgentCreate(BaseModel):
     name: str
     stable_node_id: str
@@ -65,6 +66,7 @@ class TokenCreateResponse(TokenResponse):
 
 
 # --- Routes ---
+
 
 @router.get("", response_model=list[AgentResponse])
 async def list_agents(

@@ -220,8 +220,8 @@ class FakeAgentServer:
             self._config.port,
             process_request=self._process_request,
             process_response=self._process_response,
-            ping_interval=None,   # disable keepalive pings in tests
-            compression=None,     # disable permessage-deflate in tests
+            ping_interval=None,  # disable keepalive pings in tests
+            compression=None,  # disable permessage-deflate in tests
         )
 
     async def stop(self) -> None:
@@ -329,8 +329,10 @@ class FakeAgentServer:
 
                         if n_fatal is not None and frame_count >= n_fatal:
                             await _send_error(
-                                websocket, session_id,
-                                "STREAM_ERROR", "test fatal error injection",
+                                websocket,
+                                session_id,
+                                "STREAM_ERROR",
+                                "test fatal error injection",
                                 fatal=True,
                             )
                             return
@@ -355,8 +357,11 @@ class FakeAgentServer:
                     err = _validate_connect(msg)
                     if err:
                         await _send_error(
-                            websocket, session_id,
-                            "INVALID_CONNECT", err, fatal=True,
+                            websocket,
+                            session_id,
+                            "INVALID_CONNECT",
+                            err,
+                            fatal=True,
                         )
                         return
 
@@ -383,8 +388,11 @@ class FakeAgentServer:
                     err = _validate_stream_config(msg, session_id)
                     if err:
                         await _send_error(
-                            websocket, session_id,
-                            "INVALID_STREAM_CONFIG", err, fatal=True,
+                            websocket,
+                            session_id,
+                            "INVALID_STREAM_CONFIG",
+                            err,
+                            fatal=True,
                         )
                         return
 
@@ -420,8 +428,10 @@ class FakeAgentServer:
 
                         if n_fatal is not None and frame_count >= n_fatal:
                             await _send_error(
-                                websocket, session_id,
-                                "STREAM_ERROR", "test fatal error injection",
+                                websocket,
+                                session_id,
+                                "STREAM_ERROR",
+                                "test fatal error injection",
                                 fatal=True,
                             )
                             return
@@ -433,8 +443,10 @@ class FakeAgentServer:
                         ):
                             sent_nonfatal = True
                             await _send_error(
-                                websocket, session_id,
-                                "STREAM_WARNING", "test nonfatal error injection",
+                                websocket,
+                                session_id,
+                                "STREAM_WARNING",
+                                "test nonfatal error injection",
                                 fatal=False,
                             )
                             # Continue — nonfatal means keep streaming
@@ -470,7 +482,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Fake agent WebSocket server")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--token", default=None, help="Expected bearer token (optional)")
+    parser.add_argument(
+        "--token", default=None, help="Expected bearer token (optional)"
+    )
     args = parser.parse_args()
 
     cfg = FakeServerConfig(host=args.host, port=args.port, expected_token=args.token)

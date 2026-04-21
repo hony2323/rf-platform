@@ -60,6 +60,7 @@ async def other_client(client: AsyncClient):
 
 # --- Agent CRUD ---
 
+
 async def test_list_agents_empty(auth_client: AsyncClient):
     resp = await auth_client.get("/agents")
     assert resp.status_code == 200
@@ -96,6 +97,7 @@ async def test_list_agents_returns_own_only(auth_client: AsyncClient):
 
 # --- Ownership isolation ---
 
+
 async def test_agent_not_visible_to_other_user(client: AsyncClient):
     await _register_and_login(client, "alice@example.com", "pw")
     created = (await client.post("/agents", json={"name": "A", "stable_node_id": "n_a"})).json()
@@ -108,6 +110,7 @@ async def test_agent_not_visible_to_other_user(client: AsyncClient):
 
 
 # --- Token CRUD ---
+
 
 async def test_create_token_returns_raw_once(auth_client: AsyncClient):
     agent = (await auth_client.post("/agents", json={"name": "A", "stable_node_id": "n1"})).json()

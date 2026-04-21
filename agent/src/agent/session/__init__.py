@@ -54,6 +54,10 @@ class SessionError(Exception):
     """Protocol-level session failure. Caller should reconnect."""
 
 
+class FatalSessionError(SessionError):
+    """Server sent fatal=true. Do not reconnect — fix config first."""
+
+
 # ---------------------------------------------------------------------------
 # Protocol stubs (kept for type-checking consumers)
 # ---------------------------------------------------------------------------
@@ -192,6 +196,10 @@ class Session:
             msg = self._codec.decode(raw)
         except Exception as exc:
             raise SessionError(f"Failed to decode connect_ack: {exc}") from exc
+        if isinstance(msg, ServerError) and msg.fatal:
+            raise FatalSessionError(
+                f"Server rejected connection: {msg.code}: {msg.message}"
+            )
         if not isinstance(msg, ConnectAck):
             raise SessionError(f"Expected connect_ack, got {type(msg).__name__!r}")
         if msg.session_id != self._session_id:
@@ -227,6 +235,10 @@ class Session:
             msg = self._codec.decode(raw)
         except Exception as exc:
             raise SessionError(f"Failed to decode stream_config_ack: {exc}") from exc
+        if isinstance(msg, ServerError) and msg.fatal:
+            raise FatalSessionError(
+                f"Server rejected stream config: {msg.code}: {msg.message}"
+            )
         if not isinstance(msg, StreamConfigAck):
             raise SessionError(
                 f"Expected stream_config_ack, got {type(msg).__name__!r}"
@@ -355,7 +367,9 @@ class Session:
                 raise SessionError(f"Server disconnected: {msg.reason}")
             elif isinstance(msg, ServerError):
                 if msg.fatal:
-                    raise SessionError(f"Fatal server error: {msg.code}")
+                    raise FatalSessionError(
+                        f"Fatal server error: {msg.code}: {msg.message}"
+                    )
                 # Non-fatal frame rejection errors increment server_rejected.
                 if msg.code in ("INVALID_FRAME", "FRAME_TOO_LARGE"):
                     if self._metrics is not None:

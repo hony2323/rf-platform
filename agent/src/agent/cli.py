@@ -58,6 +58,8 @@ except ImportError:
 
 from agent.app.factories import make_standard_factories
 from agent.app.runner import AgentRunner, BuildFailure
+from agent.session import FatalSessionError
+from agent.transport import AuthenticationError
 from agent.config import AgentConfig, ConfigValidationError, load_config_dict
 from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 from agent.source.sigmf import SigMFSource
@@ -438,6 +440,12 @@ def _connect(args: argparse.Namespace) -> None:
         asyncio.run(runner.run_forever())
     except KeyboardInterrupt:
         print("\nstopped.")
+    except AuthenticationError:
+        raise SystemExit(
+            "Authentication failed: check your token (--token / RF_AGENT_TOKEN)"
+        )
+    except FatalSessionError as exc:
+        raise SystemExit(f"Server rejected connection (not retrying): {exc}") from exc
     except BuildFailure as exc:
         raise SystemExit(f"Agent startup failed: {exc.__cause__}") from exc
 

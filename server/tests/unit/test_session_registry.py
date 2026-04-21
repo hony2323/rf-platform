@@ -11,6 +11,7 @@ from server.sessions.registry import SessionRegistry
 # Factories
 # ---------------------------------------------------------------------------
 
+
 def make_session(
     session_id: str = "ses_1",
     agent_id: str = "agent_1",
@@ -44,6 +45,7 @@ def make_viewer(
 # ---------------------------------------------------------------------------
 # Agent session lifecycle
 # ---------------------------------------------------------------------------
+
 
 def test_add_and_get_session():
     reg = SessionRegistry()
@@ -117,6 +119,7 @@ def test_add_session_replaces_existing_for_same_id():
 # Session mutation
 # ---------------------------------------------------------------------------
 
+
 def test_update_heartbeat_returns_true_and_refreshes_timestamp():
 
     reg = SessionRegistry()
@@ -161,6 +164,7 @@ def test_update_config_version_returns_false_for_unknown():
 # ---------------------------------------------------------------------------
 # Viewer subscription lifecycle
 # ---------------------------------------------------------------------------
+
 
 def test_add_and_get_viewer():
     reg = SessionRegistry()
@@ -228,6 +232,7 @@ def test_all_viewers_empty_registry():
 # Isolation — separate registry instances share no state
 # ---------------------------------------------------------------------------
 
+
 def test_registries_are_independent():
     r1 = SessionRegistry()
     r2 = SessionRegistry()
@@ -238,6 +243,7 @@ def test_registries_are_independent():
 # ---------------------------------------------------------------------------
 # Model defaults
 # ---------------------------------------------------------------------------
+
 
 def test_live_agent_session_has_frame_queue():
     s = make_session()
@@ -251,6 +257,7 @@ def test_viewer_subscription_has_send_queue():
 
 def test_live_agent_session_connected_at_is_set():
     from datetime import UTC, datetime
+
     before = datetime.now(UTC)
     s = make_session()
     assert s.connected_at >= before
@@ -258,6 +265,7 @@ def test_live_agent_session_connected_at_is_set():
 
 def test_viewer_subscription_subscribed_at_is_set():
     from datetime import UTC, datetime
+
     before = datetime.now(UTC)
     v = make_viewer()
     assert v.subscribed_at >= before
@@ -266,6 +274,7 @@ def test_viewer_subscription_subscribed_at_is_set():
 # ---------------------------------------------------------------------------
 # One-session-per-agent invariant
 # ---------------------------------------------------------------------------
+
 
 def test_adding_second_session_for_same_agent_evicts_first():
     reg = SessionRegistry()
@@ -316,6 +325,7 @@ def test_replacing_session_same_session_id_is_idempotent():
 # ---------------------------------------------------------------------------
 # Cascade viewer cleanup on session removal
 # ---------------------------------------------------------------------------
+
 
 def test_remove_session_also_removes_attached_viewers():
     reg = SessionRegistry()

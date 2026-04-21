@@ -176,12 +176,16 @@ class _TransportSender:
         self._transport = transport
         self._codec = codec
 
-    async def send_heartbeat(self, node_id: str, session_id: str, timestamp_utc: str) -> None:
+    async def send_heartbeat(
+        self, node_id: str, session_id: str, timestamp_utc: str
+    ) -> None:
         await self._transport.send(
             self._codec.encode_heartbeat(node_id, session_id, timestamp_utc)
         )
 
-    async def send_agent_status(self, node_id: str, session_id: str, timestamp_utc: str, metrics) -> None:
+    async def send_agent_status(
+        self, node_id: str, session_id: str, timestamp_utc: str, metrics
+    ) -> None:
         await self._transport.send(
             self._codec.encode_agent_status(node_id, session_id, timestamp_utc, metrics)
         )
@@ -215,7 +219,9 @@ def _make_factories(
             metrics=shared_metrics,
         )
 
-    def make_session(cfg: AgentConfig, t: WebSocketTransport, c: JsonBase64Codec) -> Session:
+    def make_session(
+        cfg: AgentConfig, t: WebSocketTransport, c: JsonBase64Codec
+    ) -> Session:
         return Session(
             config=cfg,
             transport=t,
@@ -276,7 +282,9 @@ async def run(args: argparse.Namespace) -> None:
 
         elif suffix == ".wav":
             if args.freq is None:
-                raise SystemExit("--freq is required for WAV files (WAV has no center frequency metadata)")
+                raise SystemExit(
+                    "--freq is required for WAV files (WAV has no center frequency metadata)"
+                )
             iq = _iq_from_wav(file_path, args.freq)
             source_label = f"wav:{file_path.name}"
             file_block_size = args.fft_size * iq.sample_format.bytes_per_sample
@@ -291,7 +299,9 @@ async def run(args: argparse.Namespace) -> None:
                 )
 
         else:
-            raise SystemExit(f"Unsupported file type {suffix!r}. Use .sigmf-meta or .wav")
+            raise SystemExit(
+                f"Unsupported file type {suffix!r}. Use .sigmf-meta or .wav"
+            )
 
     else:
         iq = IQDescriptor(
@@ -304,7 +314,9 @@ async def run(args: argparse.Namespace) -> None:
         source_label = "simulator"
 
         def make_source(cfg: AgentConfig) -> SimulatorSource:
-            return SimulatorSource(descriptor=cfg.iq, rate_limit_msps=args.rate_limit_msps)
+            return SimulatorSource(
+                descriptor=cfg.iq, rate_limit_msps=args.rate_limit_msps
+            )
 
     if args.fps is not None and args.rate_limit_msps is not None:
         raise SystemExit("--fps and --rate-limit-msps are mutually exclusive")
@@ -334,7 +346,9 @@ async def run(args: argparse.Namespace) -> None:
     )
 
     logical_fps = iq.sample_rate_hz / args.fft_size
-    effective_fps = (rate_limit_msps * 1e6 / args.fft_size) if rate_limit_msps else logical_fps
+    effective_fps = (
+        (rate_limit_msps * 1e6 / args.fft_size) if rate_limit_msps else logical_fps
+    )
     print(
         f"source={source_label}  node_id={args.node_id}  server={args.server}\n"
         f"  center={iq.center_freq_hz / 1e6:.3f} MHz  "
@@ -348,7 +362,9 @@ async def run(args: argparse.Namespace) -> None:
     codec = JsonBase64Codec()
     pipeline_timing = PipelineTiming()
     shared_metrics = MetricsCollector(timings=pipeline_timing)
-    factories = _make_factories(transport, codec, make_source, pipeline_timing, shared_metrics)
+    factories = _make_factories(
+        transport, codec, make_source, pipeline_timing, shared_metrics
+    )
 
     from agent.app.runner import AgentRunner
 
@@ -357,25 +373,54 @@ async def run(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Agent → live server (simulator or recording)")
-    parser.add_argument("--server",   required=True, help="WebSocket URL, e.g. ws://localhost:8000/ws/agent")
-    parser.add_argument("--token",    required=True, help="Raw agent bearer token")
-    parser.add_argument("--node-id",  required=True, dest="node_id", help="Agent stable_node_id")
-    parser.add_argument("--file",     default=None,
-                        help="Recording file (.sigmf-meta or .wav). Omit to use the synthetic simulator.")
+    parser = argparse.ArgumentParser(
+        description="Agent → live server (simulator or recording)"
+    )
+    parser.add_argument(
+        "--server",
+        required=True,
+        help="WebSocket URL, e.g. ws://localhost:8000/ws/agent",
+    )
+    parser.add_argument("--token", required=True, help="Raw agent bearer token")
+    parser.add_argument(
+        "--node-id", required=True, dest="node_id", help="Agent stable_node_id"
+    )
+    parser.add_argument(
+        "--file",
+        default=None,
+        help="Recording file (.sigmf-meta or .wav). Omit to use the synthetic simulator.",
+    )
     parser.add_argument("--fft-size", type=int, default=1024, dest="fft_size")
-    parser.add_argument("--sample-rate", type=int, default=240_000, dest="sample_rate",
-                        help="IQ sample rate Hz — simulator only; ignored when --file is given.")
-    parser.add_argument("--freq",     type=int, default=None,
-                        help="Centre frequency Hz — simulator default 433920000; "
-                             "required for .wav files; ignored for .sigmf-meta files.")
-    parser.add_argument("--fps", type=float, default=None,
-                        help="Target output frames per second. Computes rate-limit-msps automatically. "
-                             "Mutually exclusive with --rate-limit-msps.")
-    parser.add_argument("--rate-limit-msps", type=float, default=None, dest="rate_limit_msps",
-                        metavar="MSPS",
-                        help="Throttle IQ output to N Msps. "
-                             "Set to sample_rate/1e6 for real-time pacing. Default: unlimited.")
+    parser.add_argument(
+        "--sample-rate",
+        type=int,
+        default=240_000,
+        dest="sample_rate",
+        help="IQ sample rate Hz — simulator only; ignored when --file is given.",
+    )
+    parser.add_argument(
+        "--freq",
+        type=int,
+        default=None,
+        help="Centre frequency Hz — simulator default 433920000; "
+        "required for .wav files; ignored for .sigmf-meta files.",
+    )
+    parser.add_argument(
+        "--fps",
+        type=float,
+        default=None,
+        help="Target output frames per second. Computes rate-limit-msps automatically. "
+        "Mutually exclusive with --rate-limit-msps.",
+    )
+    parser.add_argument(
+        "--rate-limit-msps",
+        type=float,
+        default=None,
+        dest="rate_limit_msps",
+        metavar="MSPS",
+        help="Throttle IQ output to N Msps. "
+        "Set to sample_rate/1e6 for real-time pacing. Default: unlimited.",
+    )
     args = parser.parse_args()
 
     try:

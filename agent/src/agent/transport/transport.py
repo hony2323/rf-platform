@@ -12,7 +12,16 @@ from typing import Any
 import websockets
 import websockets.asyncio.client
 
-from agent.transport import TransportState
+from agent.transport import AuthenticationError, TransportState
+
+
+def _http_status(exc: BaseException) -> int | None:
+    """Extract HTTP status code from a websockets handshake rejection."""
+    code = getattr(exc, "status_code", None)
+    if code is None:
+        resp = getattr(exc, "response", None)
+        code = getattr(resp, "status_code", None)
+    return int(code) if code is not None else None
 
 
 class WebSocketTransport:
@@ -70,6 +79,10 @@ class WebSocketTransport:
         except Exception as exc:
             self._ws = None
             self._state = TransportState.CLOSED
+            if _http_status(exc) == 401:
+                raise AuthenticationError(
+                    "Authentication failed: server rejected token (HTTP 401)"
+                ) from exc
             raise ConnectionError(f"WebSocket connect failed: {exc}") from exc
 
         self._ws = ws

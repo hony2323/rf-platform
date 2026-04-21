@@ -35,8 +35,6 @@ import asyncio
 import datetime
 import json
 import math
-import os
-import random
 import struct
 import sys
 import time
@@ -61,13 +59,11 @@ from agent.config import (
     TelemetryConfig,
 )
 from agent.domain import (
-    ConnectionState,
     Endianness,
     IQDescriptor,
     Layout,
     RFConfig,
     SampleFormat,
-    SpectrumFrame,
     WireEncoding,
 )
 from agent.processing.processor import IQProcessor
@@ -76,7 +72,7 @@ from agent.session import Session
 from agent.source.sigmf import SigMFSource
 from agent.source.wav import WavSource
 from agent.telemetry import MetricsCollector
-from agent.telemetry.loop import TelemetryLoop, TelemetrySender
+from agent.telemetry.loop import TelemetryLoop
 from agent.telemetry.stage_timing import PipelineTiming
 from agent.transport.transport import WebSocketTransport
 from fake_server import ConnectionRecord, FakeAgentServer, FakeServerConfig
@@ -185,9 +181,9 @@ class _Snapshot:
     elapsed_s: float
     total_frames: int
     fps: float
-    iq_msps: float        # IQ mega-samples/sec (fps × fft_size / 1e6)
-    iq_mb_s: float        # IQ throughput in MB/s (float32 = 8 bytes/complex sample)
-    rx_bytes_per_sec: float   # actual WebSocket bytes/sec received by server
+    iq_msps: float  # IQ mega-samples/sec (fps × fft_size / 1e6)
+    iq_mb_s: float  # IQ throughput in MB/s (float32 = 8 bytes/complex sample)
+    rx_bytes_per_sec: float  # actual WebSocket bytes/sec received by server
     total_heartbeats: int
     total_statuses: int
     last_status: dict[str, Any] | None
@@ -250,7 +246,9 @@ def _print_stats(snap: _Snapshot, config: AgentConfig) -> None:
         "frames_received": snap.total_frames,
         "fps": round(snap.fps, 2),
         "realtime_fps_needed": round(realtime_fps, 1),
-        "realtime_ratio": round(realtime_ratio, 3),  # 1.0 = keeping up, <1.0 = falling behind
+        "realtime_ratio": round(
+            realtime_ratio, 3
+        ),  # 1.0 = keeping up, <1.0 = falling behind
         "can_keep_up": realtime_ratio >= 1.0,
         "ws_bytes_per_sec": round(snap.rx_bytes_per_sec),
         "ws_kb_per_sec": round(snap.rx_bytes_per_sec / 1024, 1),
@@ -277,10 +275,16 @@ def _print_stats(snap: _Snapshot, config: AgentConfig) -> None:
         if "pipeline" in st:
             p = st["pipeline"]
             doc["pipeline_ms"] = {
-                "parse_iq":  {"p50": p.get("parse_iq_p50_ms"),  "p99": p.get("parse_iq_p99_ms")},
-                "fft":       {"p50": p.get("fft_p50_ms"),        "p99": p.get("fft_p99_ms")},
-                "encode_send": {"p50": p.get("encode_send_p50_ms"), "p99": p.get("encode_send_p99_ms")},
-                "iq_queue_depth_avg":    p.get("iq_queue_depth_avg"),
+                "parse_iq": {
+                    "p50": p.get("parse_iq_p50_ms"),
+                    "p99": p.get("parse_iq_p99_ms"),
+                },
+                "fft": {"p50": p.get("fft_p50_ms"), "p99": p.get("fft_p99_ms")},
+                "encode_send": {
+                    "p50": p.get("encode_send_p50_ms"),
+                    "p99": p.get("encode_send_p99_ms"),
+                },
+                "iq_queue_depth_avg": p.get("iq_queue_depth_avg"),
                 "frame_queue_depth_avg": p.get("frame_queue_depth_avg"),
             }
 
@@ -427,7 +431,7 @@ async def run(args: argparse.Namespace) -> None:
             return
         # loops=None → replay the file indefinitely
         sigmf_source = SigMFSource(meta_path, loops=None)
-        await sigmf_source.start()          # parse meta → builds descriptor
+        await sigmf_source.start()  # parse meta → builds descriptor
         iq = sigmf_source.descriptor
         rf = RFConfig(
             center_freq_hz=iq.center_freq_hz,
@@ -441,7 +445,9 @@ async def run(args: argparse.Namespace) -> None:
             print(json.dumps({"event": "error", "msg": f"not found: {wav_path}"}))
             return
         if args.freq is None:
-            print(json.dumps({"event": "error", "msg": "--freq is required with --wav"}))
+            print(
+                json.dumps({"event": "error", "msg": "--freq is required with --wav"})
+            )
             return
         # loops=None → replay the file indefinitely
         wav_source = WavSource(
@@ -450,7 +456,7 @@ async def run(args: argparse.Namespace) -> None:
             loops=None,
             rate_limit_msps=args.rate_limit_msps,
         )
-        await wav_source.start()            # parse WAV header → builds descriptor
+        await wav_source.start()  # parse WAV header → builds descriptor
         iq = wav_source.descriptor
         rf = RFConfig(
             center_freq_hz=iq.center_freq_hz,
@@ -502,7 +508,9 @@ async def run(args: argparse.Namespace) -> None:
             ),
             bandwidth=BandwidthConfig(
                 max_bytes_per_sec=(
-                    int(args.max_bw_kbps * 1000) if args.max_bw_kbps is not None else None
+                    int(args.max_bw_kbps * 1000)
+                    if args.max_bw_kbps is not None
+                    else None
                 ),
                 strategy=args.bw_strategy,
             ),
@@ -513,8 +521,13 @@ async def run(args: argparse.Namespace) -> None:
         pipeline_timing = PipelineTiming()
         shared_metrics = MetricsCollector(timings=pipeline_timing)
         factories = _make_factories(
-            transport, codec, args.rate_limit_msps, shared_metrics, pipeline_timing,
-            sigmf_source, wav_source,
+            transport,
+            codec,
+            args.rate_limit_msps,
+            shared_metrics,
+            pipeline_timing,
+            sigmf_source,
+            wav_source,
         )
 
         from agent.app.runner import AgentRunner
@@ -555,7 +568,9 @@ async def run(args: argparse.Namespace) -> None:
 
         # Final snapshot
         record = server.connections[0] if server.connections else None
-        snap, _, _, _ = _build_snapshot(record, time.monotonic(), 0, 0, time.monotonic())
+        snap, _, _, _ = _build_snapshot(
+            record, time.monotonic(), 0, 0, time.monotonic()
+        )
         print(
             json.dumps(
                 {
@@ -579,7 +594,12 @@ def main() -> None:
         default="json_base64",
         help="Wire encoding for spectrum frames (default: json_base64)",
     )
-    parser.add_argument("--freq", type=int, default=None, help="Center frequency Hz (required for --wav; defaults to 433920000 for simulator)")
+    parser.add_argument(
+        "--freq",
+        type=int,
+        default=None,
+        help="Center frequency Hz (required for --wav; defaults to 433920000 for simulator)",
+    )
     parser.add_argument("--stats-hz", type=float, default=1.0)
     parser.add_argument(
         "--duration",

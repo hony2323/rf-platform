@@ -55,6 +55,7 @@ async def test_repeated_init_db_is_idempotent():
 
 async def test_init_db_creates_tables():
     from sqlalchemy import text
+
     await db_module.init_db(":memory:")
     async with db_module.get_engine().connect() as conn:
         result = await conn.execute(

@@ -17,6 +17,10 @@ class TransportState(enum.Enum):
     OPEN = "open"
 
 
+class AuthenticationError(ConnectionError):
+    """Server rejected the bearer token during WebSocket upgrade (HTTP 401)."""
+
+
 class Transport(Protocol):
     """Async WebSocket transport."""
 

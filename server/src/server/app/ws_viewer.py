@@ -99,7 +99,9 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
         registry.add_viewer(viewer)
         logger.info(
             "viewer subscribed subscription_id=%s user_id=%s agent_id=%s",
-            subscription_id, user.id, agent.id,
+            subscription_id,
+            user.id,
+            agent.id,
         )
 
         await websocket.send_text(

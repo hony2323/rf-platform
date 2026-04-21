@@ -15,9 +15,7 @@ async def create_agent(db: AsyncSession, user_id: str, name: str, stable_node_id
 
 
 async def get_agent_by_id(db: AsyncSession, agent_id: str, user_id: str) -> Agent | None:
-    result = await db.execute(
-        select(Agent).where(Agent.id == agent_id, Agent.user_id == user_id)
-    )
+    result = await db.execute(select(Agent).where(Agent.id == agent_id, Agent.user_id == user_id))
     return result.scalar_one_or_none()
 
 

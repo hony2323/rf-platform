@@ -24,6 +24,7 @@ from server.storage.repositories.agent_tokens import create_token
 # Lightweight ASGI WebSocket test client (same-loop, no TCP)
 # ---------------------------------------------------------------------------
 
+
 class _WS:
     """Drive a WebSocket endpoint via raw ASGI without a real network connection."""
 
@@ -36,9 +37,7 @@ class _WS:
             "path": path,
             "query_string": b"",
             "root_path": "",
-            "headers": [
-                (k.lower().encode(), v.encode()) for k, v in (headers or {}).items()
-            ],
+            "headers": [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()],
             "server": ("testserver", 80),
             "client": ("testclient", 0),
         }
@@ -51,9 +50,7 @@ class _WS:
 
     async def connect(self) -> None:
         await self._c2s.put({"type": "websocket.connect"})
-        self._task = asyncio.create_task(
-            self._app(self._scope, self._receive, self._send)
-        )
+        self._task = asyncio.create_task(self._app(self._scope, self._receive, self._send))
         get_task = asyncio.create_task(self._s2c.get())
         done, _ = await asyncio.wait(
             {get_task, self._task},
@@ -148,6 +145,7 @@ async def db_state():
 @pytest.fixture
 def app(db_state):
     from server.sessions.registry import SessionRegistry
+
     a = create_app(":memory:")
     a.state.registry = SessionRegistry()
     return a
@@ -156,6 +154,7 @@ def app(db_state):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _agent_ws(app) -> _WS:
     return _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
@@ -237,6 +236,7 @@ async def _do_agent_handshake(ws: _WS, bin_count: int = 4) -> str:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 async def test_subscribe_online_agent_succeeds(app, db_state):
     agent = _agent_ws(app)

@@ -12,6 +12,7 @@ Note: a WAV *frame* is one sample across all channels (e.g. for stereo IQ,
 one frame = one I/Q pair). This matches the terminology used by Python's
 `wave` module (`getnframes`, `readframes`).
 """
+
 from __future__ import annotations
 
 import argparse

@@ -120,9 +120,7 @@ class SessionRegistry:
     # ------------------------------------------------------------------
 
     def _evict_viewers(self, session_id: str) -> None:
-        to_remove = [
-            sid for sid, v in self._viewers.items() if v.session_id == session_id
-        ]
+        to_remove = [sid for sid, v in self._viewers.items() if v.session_id == session_id]
         for sid in to_remove:
             viewer = self._viewers.pop(sid)
             viewer.closed.set()

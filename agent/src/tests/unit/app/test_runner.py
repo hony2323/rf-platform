@@ -532,6 +532,32 @@ async def test_run_forever_does_not_retry_on_build_failure() -> None:
     assert sleep_calls == []
 
 
+async def test_run_forever_does_not_retry_on_authentication_error() -> None:
+    """AuthenticationError (bad token) stops
+    the loop immediately — no point retrying."""
+    from agent.transport import AuthenticationError
+
+    runner, repo = _make_runner(
+        session_raises=AuthenticationError(
+            "Authentication failed: server rejected token (HTTP 401)"
+        )
+    )
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    runner._sleep = fake_sleep  # type: ignore[assignment]
+
+    with pytest.raises(AuthenticationError):
+        await runner.run_forever()
+
+    # Only one attempt was made, no sleep between retries
+    assert len(repo.sessions) == 1
+    assert sleep_calls == []
+
+
 async def test_run_once_raises_build_failure_when_factory_raises() -> None:
     """BuildFailure is raised from run_once() when the source factory fails."""
     runner, repo = _make_runner(source_factory_raises=OSError("hardware not found"))

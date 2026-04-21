@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import random
+import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -21,7 +22,8 @@ from agent.processing import Processor
 from agent.protocol import ProtocolCodec
 from agent.source.base import IQSource
 from agent.telemetry import MetricsCollector
-from agent.transport import Transport
+from agent.session import FatalSessionError
+from agent.transport import AuthenticationError, Transport
 
 
 # ---------------------------------------------------------------------------
@@ -247,17 +249,30 @@ class AgentRunner:
 
         while True:
             try:
-                await self.run_once()
+                result = await self.run_once()
             except BuildFailure:
                 raise
             except asyncio.CancelledError:
                 raise
+
+            if result.error is not None:
+                if isinstance(result.error, (AuthenticationError, FatalSessionError)):
+                    raise result.error
+                print(
+                    f"[rf-agent] disconnected"
+                    f" ({type(result.error).__name__}): {result.error}",
+                    file=sys.stderr,
+                )
 
             # Runtime failure path — sleep, then grow the delay for next time
             sleep_duration = delay
             if reconnect.jitter:
                 sleep_duration = delay * (0.5 + random.random() * 0.5)
 
+            print(
+                f"[rf-agent] reconnecting in {sleep_duration:.1f}s...",
+                file=sys.stderr,
+            )
             await self._sleep(sleep_duration)
 
             delay = min(

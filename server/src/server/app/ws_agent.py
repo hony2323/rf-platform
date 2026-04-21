@@ -106,14 +106,18 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
 
         if msg.protocol_version != SUPPORTED_PROTOCOL_VERSION:
             await _send_fatal(
-                websocket, session_id, "PROTOCOL_MISMATCH",
+                websocket,
+                session_id,
+                "PROTOCOL_MISMATCH",
                 f"server requires protocol {SUPPORTED_PROTOCOL_VERSION}",
             )
             return
 
         if msg.requested_encoding != SUPPORTED_ENCODING:
             await _send_fatal(
-                websocket, session_id, "UNSUPPORTED_ENCODING",
+                websocket,
+                session_id,
+                "UNSUPPORTED_ENCODING",
                 f"server only supports {SUPPORTED_ENCODING}",
             )
             return
@@ -173,9 +177,7 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             last_config_version=config_version,
         )
 
-        await websocket.send_text(
-            encode_stream_config_ack(session_id, stream_id, config_version)
-        )
+        await websocket.send_text(encode_stream_config_ack(session_id, stream_id, config_version))
         registry.add_session(session)
         logger.info("agent session started session_id=%s agent_id=%s", session_id, agent.id)
 
@@ -191,8 +193,9 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                 continue
 
             if isinstance(msg, (HeartbeatMsg, AgentStatusMsg, StreamConfigMsg, SpectrumFrameMsg)):
-                err = _check_node_id(msg.node_id, agent.stable_node_id) or \
-                      _check_session_id(msg.session_id, session_id)
+                err = _check_node_id(msg.node_id, agent.stable_node_id) or _check_session_id(
+                    msg.session_id, session_id
+                )
                 if err:
                     await websocket.send_text(
                         encode_error(session_id, "INVALID_FRAME", err, fatal=False)
@@ -207,10 +210,14 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                 try:
                     new_bin_count = int(msg.rf["bin_count"])
                 except (KeyError, TypeError, ValueError):
-                    await websocket.send_text(encode_error(
-                        session_id, "INVALID_FRAME",
-                        "stream_config missing rf.bin_count", fatal=False,
-                    ))
+                    await websocket.send_text(
+                        encode_error(
+                            session_id,
+                            "INVALID_FRAME",
+                            "stream_config missing rf.bin_count",
+                            fatal=False,
+                        )
+                    )
                     continue
                 config_version += 1
                 config_cache = {
@@ -239,31 +246,47 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                 ):
                     sv = session.config_version
                     got = msg.config_version
-                    await websocket.send_text(encode_error(
-                        session_id, "INVALID_FRAME",
-                        f"expected stream_id={session.stream_id}, config_version={sv} "
-                        f"but got stream_id={msg.stream_id}, config_version={got}",
-                        fatal=False, stream_id=msg.stream_id,
-                        config_version=msg.config_version, frame_index=msg.frame_index,
-                    ))
+                    await websocket.send_text(
+                        encode_error(
+                            session_id,
+                            "INVALID_FRAME",
+                            f"expected stream_id={session.stream_id}, config_version={sv} "
+                            f"but got stream_id={msg.stream_id}, config_version={got}",
+                            fatal=False,
+                            stream_id=msg.stream_id,
+                            config_version=msg.config_version,
+                            frame_index=msg.frame_index,
+                        )
+                    )
                     continue
                 try:
                     payload_bytes = base64.b64decode(msg.payload, validate=True)
                 except Exception:
-                    await websocket.send_text(encode_error(
-                        session_id, "INVALID_FRAME", "payload is not valid base64",
-                        fatal=False, stream_id=msg.stream_id,
-                        config_version=msg.config_version, frame_index=msg.frame_index,
-                    ))
+                    await websocket.send_text(
+                        encode_error(
+                            session_id,
+                            "INVALID_FRAME",
+                            "payload is not valid base64",
+                            fatal=False,
+                            stream_id=msg.stream_id,
+                            config_version=msg.config_version,
+                            frame_index=msg.frame_index,
+                        )
+                    )
                     continue
                 expected_len = session.bin_count * 4
                 if len(payload_bytes) != expected_len:
-                    await websocket.send_text(encode_error(
-                        session_id, "INVALID_FRAME",
-                        f"payload length {len(payload_bytes)} != {expected_len}",
-                        fatal=False, stream_id=msg.stream_id,
-                        config_version=msg.config_version, frame_index=msg.frame_index,
-                    ))
+                    await websocket.send_text(
+                        encode_error(
+                            session_id,
+                            "INVALID_FRAME",
+                            f"payload length {len(payload_bytes)} != {expected_len}",
+                            fatal=False,
+                            stream_id=msg.stream_id,
+                            config_version=msg.config_version,
+                            frame_index=msg.frame_index,
+                        )
+                    )
                     continue
                 await session.frame_queue.put(msg)
                 outbound = encode_viewer_spectrum_frame(str(agent.id), session_id, msg)
@@ -273,16 +296,22 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     except asyncio.QueueFull:
                         pass
             else:
-                await websocket.send_text(encode_error(
-                    session_id, "INVALID_FRAME", "unexpected message type", fatal=False,
-                ))
+                await websocket.send_text(
+                    encode_error(
+                        session_id,
+                        "INVALID_FRAME",
+                        "unexpected message type",
+                        fatal=False,
+                    )
+                )
 
     except WebSocketDisconnect:
         pass
     except Exception:
         logger.exception(
             "agent unexpected error session_id=%s agent_id=%s",
-            session_id, getattr(agent, "id", "unknown"),
+            session_id,
+            getattr(agent, "id", "unknown"),
         )
         try:
             await websocket.send_text(
