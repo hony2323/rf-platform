@@ -18,3 +18,5 @@ server/rf_platform.db
 .vscode/settings.json
 
 agent-configs/
+.env.production
+Caddyfile
