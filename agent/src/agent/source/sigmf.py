@@ -30,6 +30,29 @@ _DATATYPE_MAP: dict[str, tuple[SampleFormat, Endianness]] = {
 _DEFAULT_BLOCK_BYTES = 65_536
 
 
+def read_iq_descriptor(meta_path: Path) -> IQDescriptor:
+    """Synchronously read a .sigmf-meta file and return an IQDescriptor."""
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    g = meta["global"]
+    datatype: str = g["core:datatype"]
+    if datatype not in _DATATYPE_MAP:
+        raise ValueError(
+            f"Unsupported SigMF datatype {datatype!r}. "
+            f"Supported: {sorted(_DATATYPE_MAP)}"
+        )
+    sample_format, endianness = _DATATYPE_MAP[datatype]
+    captures = meta.get("captures", [])
+    if not captures:
+        raise ValueError("sigmf-meta has no captures entries")
+    return IQDescriptor(
+        sample_format=sample_format,
+        endianness=endianness,
+        layout=Layout.INTERLEAVED,
+        sample_rate_hz=int(g["core:sample_rate"]),
+        center_freq_hz=int(captures[0]["core:frequency"]),
+    )
+
+
 class UnsupportedSigMFDatatypeError(ValueError):
     pass
 

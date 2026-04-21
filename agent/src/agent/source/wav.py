@@ -48,6 +48,20 @@ class UnsupportedWavFormatError(ValueError):
     pass
 
 
+def read_iq_descriptor(wav_path: Path, center_freq_hz: int) -> IQDescriptor:
+    """Synchronously read a WAV header and return an IQDescriptor."""
+    with wav_path.open("rb") as f:
+        header_data = f.read(_HEADER_READ_SIZE)
+    sample_format, sample_rate_hz, _ = _parse_wav_header(header_data)
+    return IQDescriptor(
+        sample_format=sample_format,
+        endianness=Endianness.LITTLE,
+        layout=Layout.INTERLEAVED,
+        sample_rate_hz=sample_rate_hz,
+        center_freq_hz=center_freq_hz,
+    )
+
+
 def _parse_wav_header(data: bytes) -> tuple[SampleFormat, int, int]:
     """Parse a RIFF/WAVE header and return (sample_format, sample_rate_hz, data_offset).
 
