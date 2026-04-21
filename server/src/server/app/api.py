@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from server.app.agent_routes import router as agent_router
 from server.app.http_routes import router as http_router
@@ -25,6 +26,14 @@ def create_app(db_path: str | None = None) -> FastAPI:
 
     app = FastAPI(title="RF Platform", version="0.3.0", lifespan=lifespan)
     app.state.settings = settings  # available immediately, before lifespan runs
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
     app.include_router(http_router)
     app.include_router(agent_router)
     app.include_router(ws_router)
