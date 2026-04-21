@@ -28,7 +28,8 @@ All settings are read from environment variables. Defaults work for local develo
 | `RF_PORT` | `8000` | Port (used when running via the module entry point) |
 | `RF_SESSION_SECRET` | `dev-secret-change-in-production` | HMAC key for session cookies — **change in production** |
 | `RF_SESSION_COOKIE_NAME` | `session` | Cookie name |
-| `RF_SESSION_COOKIE_SECURE` | `` (false) | Set to `1` or `true` behind HTTPS |
+| `RF_SESSION_COOKIE_SECURE` | `` (false) | Set to `1` or `true` behind HTTPS — also switches cookie to `SameSite=None` for cross-origin use |
+| `RF_CORS_ORIGINS` | `` (disabled) | Comma-separated allowed origins, e.g. `https://app.example.com,https://preview.vercel.app`. Leave unset for same-origin deployments. |
 
 ## Bootstrap
 
