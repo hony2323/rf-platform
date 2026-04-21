@@ -42,19 +42,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
 import os
 import sys
 from pathlib import Path
-from typing import Any
 from collections.abc import Callable
-
-try:
-    import tomllib  # Python 3.11+
-except ImportError:
-    try:
-        import tomli as tomllib  # type: ignore[no-redef]
-    except ImportError:
-        tomllib = None  # type: ignore[assignment]
+from typing import Any, BinaryIO, Protocol, cast
 
 from agent.app.factories import make_standard_factories
 from agent.app.runner import AgentRunner, BuildFailure
@@ -62,6 +55,7 @@ from agent.session import FatalSessionError
 from agent.transport import AuthenticationError
 from agent.config import AgentConfig, ConfigValidationError, load_config_dict
 from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
+from agent.source.base import IQSource
 from agent.source.sigmf import SigMFSource
 from agent.source.sigmf import read_iq_descriptor as sigmf_read_iq
 from agent.source.simulator import SimulatorSource
@@ -73,6 +67,22 @@ _DEFAULT_CONFIG_PATHS = [
     Path("rf-agent.toml"),
     Path.home() / ".rf-agent" / "config.toml",
 ]
+
+
+class _TomlModule(Protocol):
+    def load(self, fp: BinaryIO, /) -> object: ...
+
+
+def _import_toml_module() -> _TomlModule | None:
+    for module_name in ("tomllib", "tomli"):
+        try:
+            return cast(_TomlModule, importlib.import_module(module_name))
+        except ImportError:
+            continue
+    return None
+
+
+_TOML_MODULE = _import_toml_module()
 
 
 # ---------------------------------------------------------------------------
@@ -95,16 +105,18 @@ def _load_config_file(explicit: Path | None) -> dict[str, Any]:
     if not path.is_file():
         raise SystemExit(f"Config file not found: {path}")
 
-    if tomllib is None:
+    if _TOML_MODULE is None:
         raise SystemExit(
             "Cannot read config file: install 'tomli' (pip install tomli) "
             "or upgrade to Python 3.11+."
         )
 
     with path.open("rb") as f:
-        data = tomllib.load(f)
+        data = _TOML_MODULE.load(f)
+    if not isinstance(data, dict):
+        raise SystemExit(f"Config file root must be a TOML table: {path}")
     print(f"Using config: {path}")
-    return data  # type: ignore[return-value]
+    return cast(dict[str, Any], data)
 
 
 def _get(d: dict[str, Any], *keys: str) -> Any:
@@ -237,7 +249,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _resolve_connect(
     args: argparse.Namespace, file_cfg: dict[str, Any]
-) -> tuple[AgentConfig, Callable[[AgentConfig], Any], str]:
+) -> tuple[AgentConfig, Callable[[AgentConfig], IQSource], str]:
     """Return (AgentConfig, source_factory, source_label).
 
     Precedence: CLI flags > config file > environment variables > defaults.
@@ -347,7 +359,7 @@ def _resolve_connect(
     # ---- Source factory closure ----
     if file_path is not None and file_path.suffix.lower() == ".sigmf-meta":
 
-        def make_source(agent_cfg: AgentConfig) -> SigMFSource:
+        def _make_sigmf_source(agent_cfg: AgentConfig) -> IQSource:
             return SigMFSource(
                 meta_path=file_path,
                 block_size=block_size,
@@ -355,9 +367,11 @@ def _resolve_connect(
                 rate_limit_msps=effective_rl,
             )
 
+        make_source = _make_sigmf_source
+
     elif file_path is not None:
 
-        def make_source(agent_cfg: AgentConfig) -> WavSource:
+        def _make_wav_source(agent_cfg: AgentConfig) -> IQSource:
             return WavSource(
                 wav_path=file_path,
                 center_freq_hz=agent_cfg.iq.center_freq_hz,
@@ -366,14 +380,18 @@ def _resolve_connect(
                 rate_limit_msps=effective_rl,
             )
 
+        make_source = _make_wav_source
+
     else:
 
-        def make_source(agent_cfg: AgentConfig) -> SimulatorSource:
+        def _make_simulator_source(agent_cfg: AgentConfig) -> IQSource:
             return SimulatorSource(
                 descriptor=agent_cfg.iq,
                 block_size=block_size,
                 rate_limit_msps=effective_rl,
             )
+
+        make_source = _make_simulator_source
 
     # ---- Build typed config through the validation boundary ----
     raw: dict[str, Any] = {
