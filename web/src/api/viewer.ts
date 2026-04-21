@@ -1,3 +1,5 @@
+import { wsUrl } from "../config/api";
+
 export function viewerWsUrl(): string {
-  return "/ws/viewer";
+  return wsUrl("/ws/viewer");
 }

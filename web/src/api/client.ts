@@ -1,3 +1,5 @@
+import { apiUrl } from "../config/api";
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -70,7 +72,7 @@ export async function apiFetch<T>(
       ? { "Content-Type": "application/json" }
       : {};
 
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     ...init,
     credentials: "include",
     headers: { ...auto, ...caller },
