@@ -61,6 +61,7 @@ class ConnectionState(enum.Enum):
 
 class WireEncoding(enum.Enum):
     JSON_BASE64 = "json_base64"
+    BINARY_WS = "binary_ws"
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,15 @@ class RFConfig:
     sample_rate_hz: int
     fft_size: int
     window_fn: WindowFunction = WindowFunction.HANN
+    # bin_count: number of bins in the wire payload. None means equal to fft_size
+    # (MVP default). Distinct from fft_size per the protocol spec — the codec must
+    # serialize this field explicitly.
+    bin_count: int | None = None
+
+    @property
+    def effective_bin_count(self) -> int:
+        """Payload bin count. Equals fft_size for MVP (no frequency cropping)."""
+        return self.bin_count if self.bin_count is not None else self.fft_size
 
     @property
     def bin_size_hz(self) -> float:
@@ -164,6 +174,19 @@ class DropCounters:
     local_throttle: int = 0
     queue_overflow: int = 0
     server_rejected: int = 0
+    parse_errors: int = 0
+
+
+@dataclass(frozen=True)
+class PipelineLatencies:
+    parse_iq_p50_ms: float
+    parse_iq_p99_ms: float
+    fft_p50_ms: float
+    fft_p99_ms: float
+    encode_send_p50_ms: float
+    encode_send_p99_ms: float
+    iq_queue_depth_avg: float
+    frame_queue_depth_avg: float
 
 
 @dataclass(frozen=True)
@@ -174,3 +197,4 @@ class AgentMetrics:
     queue_depth: int
     queue_fill_pct: float
     drops: DropCounters = field(default_factory=DropCounters)
+    pipeline: PipelineLatencies | None = None

@@ -17,7 +17,7 @@ docs/         Architecture and product docs
 recordings/   Large RF recordings for local dev (gitignored — never commit)
 ```
 
-Test fixtures (small, committed, CI-safe) live in `agent/src/agent/tests/fixtures/`.
+Test fixtures (small, committed, CI-safe) live in `agent/src/tests/fixtures/`.
 Full-length recordings go in `recordings/` at the repo root and are gitignored.
 
 ## Commands
@@ -38,10 +38,10 @@ pytest
 pytest -m "not integration"
 
 # Run a single test file
-pytest src/agent/tests/unit/processing/test_parse_iq.py
+pytest src/tests/unit/processing/test_parse_iq.py
 
 # Run a single test
-pytest src/agent/tests/unit/processing/test_parse_iq.py::test_name
+pytest src/tests/unit/processing/test_parse_iq.py::test_name
 
 # Type check
 mypy src/agent
@@ -125,3 +125,13 @@ The most important parser test is the **known-signal test** (pure tone at a know
 - Do not add `config_version` to `stream_config` messages — the server assigns it.
 - `bin_count` in `stream_config` is payload-authoritative for buffer allocation; `fft_size` is the authoritative RF parameter.
 - Post-MVP items (planar layout, binary_ws, msgpack, multi-tuner stream_id, epoch_ms, phase_rad, psd_db) are explicitly deferred — do not implement them.
+
+
+## Status tracking
+
+Before starting any implementation task, read `docs/agent_mvp_status.md` to understand the current state of the codebase.  
+After completing an implementation task (files changed), update `docs/agent_mvp_status.md` to reflect what changed — close gaps that are now resolved, update "What exists" tables, and add any new gaps discovered during implementation.
+
+## Developer notes (made by human)
+You need to make sure that the changes that you make align with the original design of the code.  
+if you are not sure of the design and the flow you need to ask and clearify  

@@ -21,7 +21,6 @@ class IQParseErrorCode(enum.Enum):
     INCOMPLETE_SAMPLE = "INCOMPLETE_SAMPLE"
     UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
     UNSUPPORTED_LAYOUT = "UNSUPPORTED_LAYOUT"
-    INVALID_DESCRIPTOR = "INVALID_DESCRIPTOR"
 
 
 @dataclass(frozen=True)
@@ -44,6 +43,10 @@ class IQParseResult:
     sample_count: int
 
 
+class _UnhandledFormatError(Exception):
+    """Raised by _decode_samples when no handler exists for a SampleFormat."""
+
+
 def _endian_char(endianness: Endianness) -> Literal["<", ">"]:
     return "<" if endianness == Endianness.LITTLE else ">"
 
@@ -55,7 +58,10 @@ def _decode_samples(buffer: bytes, descriptor: IQDescriptor) -> npt.NDArray[np.f
 
     if fmt == SampleFormat.FLOAT32:
         dtype = np.dtype(np.float32).newbyteorder(ec)
-        return np.frombuffer(buffer, dtype=dtype).astype(np.float32)
+        samples = np.frombuffer(buffer, dtype=dtype).astype(np.float32)
+        if descriptor.normalize:
+            return np.clip(samples, -1.0, 1.0)
+        return samples
 
     if fmt == SampleFormat.INT16:
         raw = np.frombuffer(buffer, dtype=np.dtype(np.int16).newbyteorder(ec))
@@ -70,11 +76,13 @@ def _decode_samples(buffer: bytes, descriptor: IQDescriptor) -> npt.NDArray[np.f
         return raw
 
     if fmt == SampleFormat.FLOAT64:
-        # downcasts to float32 after normalization per schema
         raw = np.frombuffer(buffer, dtype=np.dtype(np.float64).newbyteorder(ec))
-        return raw.astype(np.float32)
+        samples = raw.astype(np.float32)
+        if descriptor.normalize:
+            return np.clip(samples, -1.0, 1.0)
+        return samples
 
-    raise ValueError(f"unhandled sample_format: {fmt}")
+    raise _UnhandledFormatError(f"unhandled sample_format: {fmt!r}")
 
 
 def parse_iq(descriptor: IQDescriptor, buffer: bytes) -> IQParseResult | IQParseError:
@@ -111,7 +119,13 @@ def parse_iq(descriptor: IQDescriptor, buffer: bytes) -> IQParseResult | IQParse
             offset=len(buffer) - (len(buffer) % bps),
         )
 
-    samples = _decode_samples(buffer, descriptor).copy()
+    try:
+        samples = _decode_samples(buffer, descriptor).copy()
+    except _UnhandledFormatError as exc:
+        return IQParseError(
+            code=IQParseErrorCode.UNSUPPORTED_FORMAT,
+            message=str(exc),
+        )
 
     if descriptor.dc_offset_remove:
         samples[0::2] -= float(samples[0::2].mean())

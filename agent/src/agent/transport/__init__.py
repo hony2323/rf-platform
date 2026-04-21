@@ -1,7 +1,9 @@
 """WebSocket transport interface.
 
-Dumb pipe with reconnect. Knows about WebSocket, TLS, and bearer token.
-Does NOT understand protocol messages — just sends and receives strings/bytes.
+Thin WebSocket wrapper: bearer auth on HTTP Upgrade, X-Session-Id extraction
+from the 101 response, raw text send/recv, and open/closed state.
+
+Does NOT own: protocol parsing, session handshake, retry/backoff, RF/FFT.
 """
 
 from __future__ import annotations
@@ -12,15 +14,11 @@ from typing import Protocol
 
 class TransportState(enum.Enum):
     CLOSED = "closed"
-    CONNECTING = "connecting"
     OPEN = "open"
 
 
-class TransportEvent(enum.Enum):
-    CONNECTED = "connected"
-    DISCONNECTED = "disconnected"
-    MESSAGE = "message"
-    ERROR = "error"
+class AuthenticationError(ConnectionError):
+    """Server rejected the bearer token during WebSocket upgrade (HTTP 401)."""
 
 
 class Transport(Protocol):
@@ -39,26 +37,27 @@ class Transport(Protocol):
     async def connect(self, url: str, token: str) -> None:
         """Open WebSocket with Authorization: Bearer <token>.
 
-        Stores X-Session-Id from response headers.
-        Raises ConnectionError on failure.
+        Captures X-Session-Id from the upgrade response headers.
+        Raises ConnectionError on failure; state remains CLOSED.
         """
         ...
 
     async def send(self, message: str | bytes) -> None:
-        """Send a message over the open WebSocket.
+        """Send a text or binary message over the open connection.
 
-        Raises ConnectionError if not connected.
+        Pass ``str`` for JSON text frames; pass ``bytes`` for binary frames
+        (binary_ws spectrum frames). Raises ConnectionError if not connected.
         """
         ...
 
-    async def recv(self) -> str | bytes:
-        """Receive the next message from the WebSocket.
+    async def recv(self) -> str:
+        """Receive the next text message from the connection.
 
-        Blocks until a message arrives.
-        Raises ConnectionError if connection drops.
+        Raises ConnectionError if not connected or connection drops.
+        Raises TypeError if a binary frame arrives.
         """
         ...
 
     async def close(self) -> None:
-        """Close the WebSocket gracefully."""
+        """Close the connection gracefully. Safe to call multiple times."""
         ...

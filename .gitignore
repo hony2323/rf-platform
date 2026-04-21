@@ -1,3 +1,20 @@
 # Large RF recordings — not committed. Store in recordings/ at the repo root.
 /recordings/
-/agent/src/agent/tests/data/recordings
+
+# Local browser automation artifacts and screenshots
+/.playwright-mcp/
+/.artifacts/
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+/temp staged/
+
+server/rf_platform.db
+
+.vscode/settings.json
+
+agent-configs/

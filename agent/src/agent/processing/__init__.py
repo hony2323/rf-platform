@@ -1,7 +1,11 @@
 """FFT processing pipeline interface.
 
-Consumes raw IQ blocks, produces SpectrumFrame objects.
+Consumes raw IQ byte blocks, produces SpectrumFrame objects.
 Pure computation — no I/O, no network awareness.
+
+Concrete implementations:
+  IQProcessor   — full pipeline: parse_iq + sample accumulation + FFTProcessor
+  FFTProcessor  — FFT stage only (windowed FFT → log-power → SpectrumFrame)
 """
 
 from __future__ import annotations
@@ -12,39 +16,23 @@ from typing import Protocol
 from agent.domain import IQDescriptor, RFConfig, SpectrumFrame
 
 
-class FFTProcessor(Protocol):
-    """Transforms IQ samples into spectrum frames."""
+class Processor(Protocol):
+    """Pipeline stage: raw IQ bytes → SpectrumFrames."""
 
-    def configure(self, rf_config: RFConfig, descriptor: IQDescriptor) -> None:
-        """Set FFT parameters. Can be called again on config change.
+    def __init__(self, descriptor: IQDescriptor, rf_config: RFConfig) -> None: ...
 
-        Pre-computes window function, allocates output buffer.
-        """
+    def configure(self, rf_config: RFConfig) -> None:
+        """Replace the active RF/FFT config. Takes effect on the next push()."""
         ...
 
-    def process(self, iq_bytes: bytes) -> SpectrumFrame:
-        """Process a single block of IQ bytes into a SpectrumFrame.
-
-        Steps (in order):
-        1. Parse IQ bytes (via iq_parser) → normalized float32
-        2. Apply window function (hann)
-        3. FFT
-        4. Compute power: 10 * log10(|X|² / N²) → dBFS
-        5. fftshift (DC center → low_to_high bin order)
-        6. Pack as float32 LE bytes → SpectrumFrame.payload
-
-        Raises ValueError if iq_bytes length doesn't match fft_size.
-        """
+    def push(self, chunk: bytes, timestamp_utc: str) -> list[SpectrumFrame]:
+        """Feed one raw IQ byte chunk. Returns 0 or more SpectrumFrames."""
         ...
 
     async def run(
         self,
-        input_queue: asyncio.Queue[bytes],
-        output_queue: asyncio.Queue[SpectrumFrame],
+        iq_queue: asyncio.Queue[bytes],
+        frame_queue: asyncio.Queue[SpectrumFrame],
     ) -> None:
-        """Continuous processing loop.
-
-        Reads IQ blocks from input_queue, calls process(), pushes
-        SpectrumFrame to output_queue. Runs until cancelled.
-        """
+        """Drain iq_queue, push SpectrumFrames to frame_queue. Runs until cancelled."""
         ...

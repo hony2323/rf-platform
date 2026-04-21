@@ -10,7 +10,11 @@ description = "SDR agent for RF spectrum streaming"
 dependencies = [
     "numpy>=1.24",
     "websockets>=12.0",
+    "tomli>=2.0; python_version < '3.11'",
 ]
+
+[project.scripts]
+rf-agent = "agent.cli:main"
 
 [project.optional-dependencies]
 sdr = [
@@ -26,10 +30,10 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent"]
-exclude = ["src/agent/tests"]
+exclude = ["src/tests"]
 
 [tool.pytest.ini_options]
-testpaths = ["src/agent/tests"]
+testpaths = ["src/tests"]
 asyncio_mode = "auto"
 markers = [
     "integration: marks integration tests (deselect with '-m \"not integration\"')",
@@ -43,7 +47,7 @@ mypy_path = "src"
 
 [tool.ruff]
 target-version = "py310"
-src = ["src", "src/agent/tests"]
+src = ["src", "src/tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "UP"]

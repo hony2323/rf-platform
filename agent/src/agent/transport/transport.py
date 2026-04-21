@@ -1,0 +1,149 @@
+"""Concrete WebSocket transport implementation.
+
+Thin adapter: WebSocket lifecycle, bearer auth, session_id extraction.
+No protocol parsing, no retry logic, no RF/FFT knowledge.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Coroutine
+from typing import Any
+
+import websockets
+import websockets.asyncio.client
+
+from agent.transport import AuthenticationError, TransportState
+
+
+def _http_status(exc: BaseException) -> int | None:
+    """Extract HTTP status code from a websockets handshake rejection."""
+    code = getattr(exc, "status_code", None)
+    if code is None:
+        resp = getattr(exc, "response", None)
+        code = getattr(resp, "status_code", None)
+    return int(code) if code is not None else None
+
+
+class WebSocketTransport:
+    """WebSocket transport backed by the ``websockets`` library.
+
+    Parameters
+    ----------
+    ws_connect:
+        Callable with the same signature as ``websockets.connect``.
+        Override in tests to inject a fake without a real server.
+    """
+
+    def __init__(
+        self,
+        ws_connect: Callable[..., Coroutine[Any, Any, Any]] | None = None,
+    ) -> None:
+        self._ws_connect: Callable[..., Coroutine[Any, Any, Any]] = (
+            ws_connect if ws_connect is not None else websockets.connect  # type: ignore[assignment]
+        )
+        self._ws: Any = None
+        self._state = TransportState.CLOSED
+        self._session_id: str | None = None
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def state(self) -> TransportState:
+        return self._state
+
+    @property
+    def session_id_from_header(self) -> str | None:
+        return self._session_id
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def connect(self, url: str, token: str) -> None:
+        """Open WebSocket, send Bearer token, capture X-Session-Id.
+
+        Raises ``ConnectionError`` if already OPEN (call ``close()`` first) or
+        if the underlying connect fails (state stays CLOSED).
+        """
+        if self._state is TransportState.OPEN:
+            raise ConnectionError("Already connected; call close() before reconnecting")
+
+        # Clear stale session_id before every connect attempt.
+        self._session_id = None
+
+        headers = {"Authorization": f"Bearer {token}"}
+        try:
+            ws = await self._ws_connect(url, additional_headers=headers)
+        except Exception as exc:
+            self._ws = None
+            self._state = TransportState.CLOSED
+            if _http_status(exc) == 401:
+                raise AuthenticationError(
+                    "Authentication failed: server rejected token (HTTP 401)"
+                ) from exc
+            raise ConnectionError(f"WebSocket connect failed: {exc}") from exc
+
+        self._ws = ws
+        # websockets >= 13 asyncio API: headers live on ws.response.headers.
+        response_headers = getattr(ws, "response", None)
+        if response_headers is not None:
+            self._session_id = response_headers.headers.get("X-Session-Id")
+        else:
+            # Fallback for scripted fakes that expose response_headers directly.
+            self._session_id = getattr(ws, "response_headers", {}).get("X-Session-Id")
+        self._state = TransportState.OPEN
+
+    async def send(self, message: str | bytes) -> None:
+        """Send a text or binary message over the open connection.
+
+        Pass ``str`` for JSON control/frame messages (json_base64 mode).
+        Pass ``bytes`` for binary spectrum frames (binary_ws mode).
+        Raises ``ConnectionError`` if the transport is not open or send fails.
+        """
+        if self._ws is None or self._state is not TransportState.OPEN:
+            raise ConnectionError("Transport is not connected")
+        try:
+            await self._ws.send(message)
+        except Exception as exc:
+            self._ws = None
+            self._state = TransportState.CLOSED
+            self._session_id = None
+            raise ConnectionError(f"WebSocket send failed: {exc}") from exc
+
+    async def recv(self) -> str:
+        """Receive the next text message from the connection.
+
+        Raises
+        ------
+        ConnectionError
+            If the transport is not open.
+        TypeError
+            If a non-text (binary) message arrives.
+        """
+        if self._ws is None or self._state is not TransportState.OPEN:
+            raise ConnectionError("Transport is not connected")
+        try:
+            msg = await self._ws.recv()
+        except Exception as exc:
+            self._ws = None
+            self._state = TransportState.CLOSED
+            self._session_id = None
+            raise ConnectionError(f"WebSocket recv failed: {exc}") from exc
+        if not isinstance(msg, str):
+            raise TypeError(
+                f"recv() expects an inbound text control message; "
+                f"got a binary frame ({type(msg).__name__}) instead"
+            )
+        return msg
+
+    async def close(self) -> None:
+        """Close the connection gracefully. Safe to call multiple times."""
+        if self._ws is None:
+            return
+        ws = self._ws
+        self._ws = None
+        self._state = TransportState.CLOSED
+        self._session_id = None
+        await ws.close()
