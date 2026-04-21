@@ -46,6 +46,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from collections.abc import Callable
 
 try:
     import tomllib  # Python 3.11+
@@ -57,13 +58,8 @@ except ImportError:
 
 from agent.app.factories import make_standard_factories
 from agent.app.runner import AgentRunner, BuildFailure
-from agent.config import (
-    AgentConfig,
-    AgentIdentity,
-    ReconnectConfig,
-    ServerConfig,
-)
-from agent.domain import Endianness, IQDescriptor, Layout, RFConfig, SampleFormat
+from agent.config import AgentConfig, ConfigValidationError, load_config_dict
+from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 from agent.source.sigmf import SigMFSource
 from agent.source.sigmf import read_iq_descriptor as sigmf_read_iq
 from agent.source.simulator import SimulatorSource
@@ -237,48 +233,49 @@ def _build_parser() -> argparse.ArgumentParser:
 # ---------------------------------------------------------------------------
 
 
-def _connect(args: argparse.Namespace) -> None:
-    cfg = _load_config_file(Path(args.config) if args.config else None)
+def _resolve_connect(
+    args: argparse.Namespace, file_cfg: dict[str, Any]
+) -> tuple[AgentConfig, Callable[[AgentConfig], Any], str]:
+    """Return (AgentConfig, source_factory, source_label).
 
-    # ---- Resolve every setting: CLI flag > env var > config file > default ----
+    Precedence: CLI flags > config file > environment variables > defaults.
+    Raises SystemExit on missing required settings or validation errors.
+    """
+    # ---- Resolve every setting: CLI flag > config file > env var > default ----
     server_url: str | None = _pick(
         args.server,
+        _get(file_cfg, "server", "url"),
         os.environ.get("RF_AGENT_SERVER"),
-        _get(cfg, "server", "url"),
     )
     token: str | None = _pick(
         args.token,
+        _get(file_cfg, "server", "token"),
         os.environ.get("RF_AGENT_TOKEN"),
-        _get(cfg, "server", "token"),
     )
-    node_id: str | None = _pick(args.node_id, _get(cfg, "identity", "node_id"))
+    node_id: str | None = _pick(args.node_id, _get(file_cfg, "identity", "node_id"))
 
-    fft_size = int(_pick(args.fft_size, _get(cfg, "source", "fft_size"), 1024))
+    fft_size = int(_pick(args.fft_size, _get(file_cfg, "source", "fft_size"), 1024))
     sample_rate = int(
-        _pick(args.sample_rate, _get(cfg, "source", "sample_rate"), 240_000)
+        _pick(args.sample_rate, _get(file_cfg, "source", "sample_rate"), 240_000)
     )
-    freq: int | None = _pick(args.freq, _get(cfg, "source", "freq"))
+    freq: int | None = _pick(args.freq, _get(file_cfg, "source", "freq"))
     if freq is not None:
         freq = int(freq)
 
-    file_arg: str | None = _pick(args.file, _get(cfg, "source", "file"))
-    fps: float | None = _pick(args.fps, _get(cfg, "source", "fps"))
+    file_arg: str | None = _pick(args.file, _get(file_cfg, "source", "file"))
+    fps: float | None = _pick(args.fps, _get(file_cfg, "source", "fps"))
     rate_limit_msps: float | None = _pick(
-        args.rate_limit_msps, _get(cfg, "source", "rate_limit_msps")
+        args.rate_limit_msps, _get(file_cfg, "source", "rate_limit_msps")
     )
-
-    reconnect_sec = _get(cfg, "reconnect") or {}
 
     # ---- Validate ----
     missing = []
     if not server_url:
-        missing.append(
-            "server URL   (--server, RF_AGENT_SERVER, or config server.url)"
-        )  # noqa: E501
+        missing.append("server URL   (--server, config server.url, or RF_AGENT_SERVER)")
     if not token:
         missing.append(
-            "bearer token  (--token, RF_AGENT_TOKEN, or config server.token)"
-        )  # noqa: E501
+            "bearer token  (--token, config server.token, or RF_AGENT_TOKEN)"
+        )
     if not node_id:
         missing.append("node ID  (--node-id or config identity.node_id)")
     if missing:
@@ -290,7 +287,7 @@ def _connect(args: argparse.Namespace) -> None:
     if fps is not None and rate_limit_msps is not None:
         raise SystemExit("--fps and --rate-limit-msps are mutually exclusive")
 
-    # ---- Resolve file path and build IQ descriptor + source factory ----
+    # ---- Resolve file path and build IQ descriptor ----
     file_path = Path(file_arg) if file_arg else None
     if file_path is not None and file_path.suffix.lower() == ".sigmf-data":
         file_path = file_path.with_suffix(".sigmf-meta")
@@ -376,39 +373,64 @@ def _connect(args: argparse.Namespace) -> None:
                 rate_limit_msps=effective_rl,
             )
 
-    # ---- Build AgentConfig ----
-    agent_config = AgentConfig(
-        identity=AgentIdentity(node_id=node_id),
-        server=ServerConfig(url=server_url, token=token),
-        rf=RFConfig(
-            center_freq_hz=iq.center_freq_hz,
-            sample_rate_hz=iq.sample_rate_hz,
-            fft_size=fft_size,
-        ),
-        iq=iq,
-        reconnect=ReconnectConfig(
-            initial_delay_s=float(reconnect_sec.get("initial_delay_s", 2.0)),
-            max_delay_s=float(reconnect_sec.get("max_delay_s", 30.0)),
-            backoff_factor=float(reconnect_sec.get("backoff_factor", 2.0)),
-            jitter=bool(reconnect_sec.get("jitter", True)),
-        ),
-    )
+    # ---- Build typed config through the validation boundary ----
+    raw: dict[str, Any] = {
+        "server": {"url": server_url, "token": token},
+        "identity": {"node_id": node_id},
+        "iq": {
+            "sample_format": iq.sample_format.value,
+            "endianness": iq.endianness.value,
+            "layout": iq.layout.value,
+            "sample_rate_hz": iq.sample_rate_hz,
+            "center_freq_hz": iq.center_freq_hz,
+        },
+        "rf": {
+            "center_freq_hz": iq.center_freq_hz,
+            "sample_rate_hz": iq.sample_rate_hz,
+            "fft_size": fft_size,
+        },
+    }
+    for section in ("reconnect", "queues", "telemetry", "bandwidth"):
+        val = file_cfg.get(section)
+        if val is not None:
+            raw[section] = val
 
-    # ---- Print startup summary ----
+    try:
+        agent_config = load_config_dict(raw)
+    except ConfigValidationError as exc:
+        raise SystemExit(f"Configuration error: {exc}") from exc
+
+    return agent_config, make_source, source_label
+
+
+def _connect(args: argparse.Namespace) -> None:
+    file_cfg = _load_config_file(Path(args.config) if args.config else None)
+    agent_config, make_source, source_label = _resolve_connect(args, file_cfg)
+
+    iq = agent_config.iq
+    fft_size = agent_config.rf.fft_size
+    fps_arg: float | None = getattr(args, "fps", None)
+    rl_arg: float | None = getattr(args, "rate_limit_msps", None)
+    if fps_arg is not None:
+        effective_rl: float | None = float(fps_arg) * fft_size / 1e6
+    elif rl_arg is not None:
+        effective_rl = float(rl_arg)
+    else:
+        effective_rl = None
+
     logical_fps = iq.sample_rate_hz / fft_size
     disp_fps = (effective_rl * 1e6 / fft_size) if effective_rl else logical_fps
     print(
         f"rf-agent {_VERSION}\n"
         f"  source     = {source_label}\n"
-        f"  node       = {node_id}\n"
-        f"  server     = {server_url}\n"
+        f"  node       = {agent_config.identity.node_id}\n"
+        f"  server     = {agent_config.server.url}\n"
         f"  centre     = {iq.center_freq_hz / 1e6:.3f} MHz\n"
         f"  sample_rate= {iq.sample_rate_hz / 1e6:.3f} Msps  "
         f"fft_size={fft_size}  fps={disp_fps:.1f}\n"
         "Press Ctrl-C to stop."
     )
 
-    # ---- Run ----
     factories = make_standard_factories(make_source)
     runner = AgentRunner(config=agent_config, factories=factories)
 

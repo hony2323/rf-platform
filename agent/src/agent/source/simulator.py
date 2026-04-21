@@ -27,6 +27,19 @@ class SimulatorSource:
         tone_offset_hz: float = 100_000.0,
         rate_limit_msps: float | None = None,
     ) -> None:
+        from agent.domain import Endianness, Layout, SampleFormat
+
+        if (
+            descriptor.sample_format is not SampleFormat.FLOAT32
+            or descriptor.endianness is not Endianness.LITTLE
+            or descriptor.layout is not Layout.INTERLEAVED
+        ):
+            raise ValueError(
+                "SimulatorSource only supports FLOAT32 + LITTLE + INTERLEAVED; "
+                f"got sample_format={descriptor.sample_format.value!r}, "
+                f"endianness={descriptor.endianness.value!r}, "
+                f"layout={descriptor.layout.value!r}"
+            )
         self._descriptor = descriptor
         self._block_size = block_size
         self._tone_offset_hz = tone_offset_hz

@@ -3,9 +3,8 @@
 Wires WebSocketTransport, JsonBase64Codec, IQProcessor, Session, and
 TelemetryLoop into a RunnerFactories bundle ready for AgentRunner.
 
-Transport and codec are created once and reused across reconnect attempts
-(both are safe to reuse after close/reconnect). Processor, session, and
-telemetry are constructed fresh per-attempt by the runner.
+A new WebSocketTransport is created per reconnect attempt; codec is shared.
+Processor, session, and telemetry are constructed fresh per-attempt by the runner.
 
 PipelineTiming and MetricsCollector are shared across attempts so cumulative
 stats survive reconnects. The runner's own MetricsCollector arg in
@@ -33,7 +32,8 @@ from agent.transport.transport import WebSocketTransport
 
 
 class _TransportSender:
-    """Adapts (WebSocketTransport, JsonBase64Codec) to TelemetryLoop's TelemetrySender."""
+    """Adapts (WebSocketTransport, JsonBase64Codec)
+    to TelemetryLoop's TelemetrySender."""
 
     def __init__(self, transport: WebSocketTransport, codec: JsonBase64Codec) -> None:
         self._transport = transport
@@ -65,11 +65,10 @@ def make_standard_factories(
     pipeline_timing = PipelineTiming()
     shared_metrics = MetricsCollector(timings=pipeline_timing)
 
-    transport = WebSocketTransport()
     codec = JsonBase64Codec()
 
     def make_transport(cfg: AgentConfig) -> WebSocketTransport:
-        return transport
+        return WebSocketTransport()
 
     def make_codec(cfg: AgentConfig) -> JsonBase64Codec:
         return codec
