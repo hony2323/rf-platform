@@ -26,14 +26,23 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
-    agents: Mapped[list[Agent]] = relationship("Agent", back_populates="user")
+    agents: Mapped[list[Agent]] = relationship(
+        "Agent",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class Agent(Base):
     __tablename__ = "agents"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
-    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     name: Mapped[str] = mapped_column(String, nullable=False)
     stable_node_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
@@ -42,7 +51,11 @@ class Agent(Base):
     last_status: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped[User] = relationship("User", back_populates="agents")
-    tokens: Mapped[list[AgentToken]] = relationship("AgentToken", back_populates="agent")
+    tokens: Mapped[list[AgentToken]] = relationship(
+        "AgentToken",
+        back_populates="agent",
+        cascade="all, delete-orphan",
+    )
 
 
 class AgentToken(Base):
@@ -50,7 +63,10 @@ class AgentToken(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     agent_id: Mapped[str] = mapped_column(
-        String, ForeignKey("agents.id"), nullable=False, index=True
+        String,
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     label: Mapped[str | None] = mapped_column(String, nullable=True)
     token_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)

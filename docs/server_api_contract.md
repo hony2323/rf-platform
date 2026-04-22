@@ -1,4 +1,4 @@
-# Server API Contract — v0.3 (frozen)
+# Server API Contract - v0.3 (frozen)
 
 This document defines the frozen JSON shapes for the RF Platform server API.
 The web app consumes these shapes directly. Do not change them without a protocol version bump.
@@ -7,8 +7,24 @@ The web app consumes these shapes directly. Do not change them without a protoco
 
 ## HTTP API
 
-All HTTP routes require a valid session cookie (`rf_session`) except `POST /auth/login` and `POST /auth/logout`.
+All HTTP routes require a valid session cookie (`rf_session`) except `POST /auth/signup`, `POST /auth/login`, and `POST /auth/logout`.
 All agent and token reads are ownership-scoped by the authenticated user's `user_id`.
+
+### `POST /auth/signup`
+
+Request:
+```json
+{ "email": "user@example.com", "password": "secret123" }
+```
+
+Response `201`:
+```json
+{ "id": "uuid", "email": "user@example.com" }
+```
+
+Sets `rf_session` cookie on success. Returns `409` if the email already exists.
+
+---
 
 ### `POST /auth/login`
 
@@ -40,6 +56,19 @@ Response `200`:
 ```
 
 Returns `401` if not authenticated.
+
+---
+
+### `DELETE /me`
+
+Request:
+```json
+{ "password": "secret123" }
+```
+
+Response `204` (no body). Deletes the authenticated user, all owned agents, and all owned agent tokens. Clears `rf_session` cookie.
+
+Returns `401` if not authenticated or the password is invalid.
 
 ---
 
@@ -81,9 +110,9 @@ Returns `404` if agent does not exist or is not owned by the caller.
 
 ### `GET /agents/{agent_id}/status`
 
-Returns the live runtime status of an agent. Reads from the in-memory session registry — not SQLite.
+Returns the live runtime status of an agent. Reads from the in-memory session registry - not SQLite.
 
-Response `200` when **online**:
+Response `200` when online:
 ```json
 {
   "agent_id": "uuid",
@@ -96,7 +125,7 @@ Response `200` when **online**:
 
 `last_status` is `null` or the last `agent_status` payload sent by the agent (object, not string).
 
-Response `200` when **offline**:
+Response `200` when offline:
 ```json
 {
   "agent_id": "uuid",
@@ -137,7 +166,7 @@ Response `201`:
   "id": "uuid",
   "label": "prod token",
   "created_at": "2026-01-01T00:00:00",
-  "token": "<raw token — returned once only>"
+  "token": "<raw token - returned once only>"
 }
 ```
 
@@ -154,14 +183,14 @@ Returns `404` if token does not exist, is already revoked, or belongs to a diffe
 
 ---
 
-## Viewer WebSocket — `/ws/viewer`
+## Viewer WebSocket - `/ws/viewer`
 
 ### Authentication
 
 Cookie auth only. The `rf_session` cookie must be present on the HTTP Upgrade request.
 Unauthenticated or invalid-cookie connections are rejected with HTTP 401 before the WebSocket handshake is accepted.
 
-### Subscribe (client → server)
+### Subscribe (client -> server)
 
 First message after connect. Sent by the browser.
 
@@ -174,7 +203,7 @@ First message after connect. Sent by the browser.
 
 The `agent_id` must be owned by the authenticated user. The agent must have an active session.
 
-### subscribe_ack (server → client)
+### subscribe_ack (server -> client)
 
 Sent immediately after a valid subscribe.
 
@@ -188,7 +217,7 @@ Sent immediately after a valid subscribe.
 }
 ```
 
-### stream_config (server → client)
+### stream_config (server -> client)
 
 Sent immediately after `subscribe_ack` if the agent has already sent its stream config (always true after handshake).
 Also sent whenever the agent sends a new `stream_config` (reconfig).
@@ -222,9 +251,9 @@ Also sent whenever the agent sends a new `stream_config` (reconfig).
 
 `config_version` is monotonically increasing per connection. Resets to 1 when the agent reconnects (new `session_id`).
 
-### spectrum_frame (server → client)
+### spectrum_frame (server -> client)
 
-Sent for every valid frame received from the agent. Payload is base64-encoded float32 LE, `bin_count × 4` bytes.
+Sent for every valid frame received from the agent. Payload is base64-encoded float32 LE, `bin_count x 4` bytes.
 
 ```json
 {
@@ -243,7 +272,7 @@ Sent for every valid frame received from the agent. Payload is base64-encoded fl
 
 `frame_index` resets to 0 on each new `config_version`. Gaps indicate dropped frames.
 
-### error (server → client)
+### error (server -> client)
 
 Sent on subscribe failure or when the watched agent session ends. Always followed by WebSocket close.
 

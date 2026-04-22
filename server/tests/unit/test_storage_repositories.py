@@ -108,3 +108,19 @@ async def test_get_tokens_for_agent_excludes_revoked(db: AsyncSession):
     active = await tokens_repo.get_tokens_for_agent(db, ag.id)
     assert len(active) == 1
     assert active[0].id == t1.id
+
+
+async def test_delete_user_cascades_agents_and_tokens(db: AsyncSession):
+    user = await users_repo.create_user(db, "cascade@example.com", "hash")
+    agent = await agents_repo.create_agent(db, user.id, "Cascade Agent", "node_cascade")
+    token = await tokens_repo.create_token(db, agent.id, "cascade_hash")
+
+    deleted = await users_repo.delete_user(db, user.id)
+
+    assert deleted is True
+    assert await users_repo.get_user_by_id(db, user.id) is None
+    assert await agents_repo.get_agent_by_id_unscoped(db, agent.id) is None
+    assert await tokens_repo.get_active_token_by_hash(db, "cascade_hash") is None
+
+    # Sanity check the old token row is gone entirely.
+    assert await tokens_repo.get_token_by_id(db, token.id, agent.id) is None

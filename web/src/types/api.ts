@@ -3,6 +3,15 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface SignupRequest {
+  email: string;
+  password: string;
+}
+
+export interface DeleteAccountRequest {
+  password: string;
+}
+
 export interface UserResponse {
   id: string;
   email: string;

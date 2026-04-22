@@ -1,9 +1,11 @@
 # Agent — MVP Status
 
-**Date:** 2026-04-14  
+**Date:** 2026-04-22  
 **Protocol version:** 0.3 (frozen)
 
 This document describes what is implemented in the agent, what is stubbed or hollow, and what is missing before the agent can be considered production-ready for MVP.
+
+Note: 2026-04-22 added browser signup and account deletion on the server/web side. The agent implementation itself is unchanged in this update.
 
 ---
 
