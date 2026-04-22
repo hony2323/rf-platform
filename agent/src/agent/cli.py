@@ -50,6 +50,7 @@ from collections.abc import Callable
 from typing import Any, BinaryIO, Protocol, cast
 
 from agent.app.factories import make_standard_factories
+from agent.utils.power import allow_sleep, prevent_sleep
 from agent.app.runner import AgentRunner, BuildFailure
 from agent.session import FatalSessionError
 from agent.transport import AuthenticationError
@@ -237,6 +238,14 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Centre frequency Hz; simulator default: 433920000; "
         "required for .wav files  (config: source.freq)",
+    )
+
+    g = conn.add_argument_group("system")
+    g.add_argument(
+        "--prevent-sleep",
+        action="store_true",
+        default=False,
+        help="Prevent Windows idle sleep while the agent is running (Windows only).",
     )
 
     return p
@@ -454,6 +463,8 @@ def _connect(args: argparse.Namespace) -> None:
     factories = make_standard_factories(make_source)
     runner = AgentRunner(config=agent_config, factories=factories)
 
+    if args.prevent_sleep:
+        prevent_sleep()
     try:
         asyncio.run(runner.run_forever())
     except KeyboardInterrupt:
@@ -466,6 +477,9 @@ def _connect(args: argparse.Namespace) -> None:
         raise SystemExit(f"Server rejected connection (not retrying): {exc}") from exc
     except BuildFailure as exc:
         raise SystemExit(f"Agent startup failed: {exc.__cause__}") from exc
+    finally:
+        if args.prevent_sleep:
+            allow_sleep()
 
 
 # ---------------------------------------------------------------------------
