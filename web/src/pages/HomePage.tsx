@@ -1,19 +1,14 @@
 import { Navigate } from "react-router-dom";
-import type { ReactNode } from "react";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { UnauthorizedError } from "../api/client";
 
-interface Props {
-  children: ReactNode;
-}
-
-export function ProtectedRoute({ children }: Props) {
+export function HomePage() {
   const { data, isLoading, error } = useCurrentUser();
 
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950">
-        <span className="text-sm text-gray-400">Loading...</span>
+        <span className="text-sm text-slate-400">Loading...</span>
       </div>
     );
   }
@@ -24,15 +19,17 @@ export function ProtectedRoute({ children }: Props) {
 
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950">
-        <span className="text-sm text-gray-400">Failed to verify session. Please try again.</span>
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 p-4">
+        <span className="text-sm text-slate-400">
+          Failed to verify your session. Please try again.
+        </span>
       </div>
     );
   }
 
   if (data) {
-    return <>{children}</>;
+    return <Navigate to="/agents" replace />;
   }
 
-  return null;
+  return <Navigate to="/login" replace />;
 }
