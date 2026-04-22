@@ -16,6 +16,12 @@ from server.storage.repositories import agents as agents_repo
 
 router = APIRouter(prefix="/agents")
 
+# TODO MVP-only cap: remove or replace with plan-based quota management after MVP.
+MAX_AGENTS_PER_USER = 5
+
+# TODO MVP-only cap: remove or replace with plan-based quota management after MVP.
+MAX_ACTIVE_TOKENS_PER_AGENT = 1
+
 
 # --- Pydantic schemas ---
 
@@ -82,6 +88,8 @@ async def create_agent(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if await agents_repo.count_agents_for_user(db, current_user.id) >= MAX_AGENTS_PER_USER:
+        raise HTTPException(status_code=409, detail="Agent limit reached for MVP")
     return await agents_repo.create_agent(db, current_user.id, body.name, body.stable_node_id)
 
 
@@ -160,6 +168,11 @@ async def create_token(
     agent = await agents_repo.get_agent_by_id(db, agent_id, current_user.id)
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
+    if (
+        await tokens_repo.count_tokens_for_agent(db, agent_id, include_revoked=False)
+        >= MAX_ACTIVE_TOKENS_PER_AGENT
+    ):
+        raise HTTPException(status_code=409, detail="Token limit reached for MVP")
     raw = secrets.token_hex(32)
     token_hash = hashlib.sha256(raw.encode()).hexdigest()
     token = await tokens_repo.create_token(db, agent_id, token_hash, body.label)

@@ -13,6 +13,9 @@ from server.storage.repositories import users as users_repo
 
 router = APIRouter()
 
+# TODO MVP-only cap: remove or replace with plan-based quota management after MVP.
+MAX_USERS = 5
+
 
 class LoginRequest(BaseModel):
     email: str
@@ -85,6 +88,8 @@ async def signup(
     existing = await users_repo.get_user_by_email(db, body.email)
     if existing is not None:
         raise HTTPException(status_code=409, detail="Email already registered")
+    if await users_repo.count_users(db) >= MAX_USERS:
+        raise HTTPException(status_code=409, detail="User limit reached for MVP")
     if len(body.email.strip()) < 3:
         raise HTTPException(status_code=422, detail="Email must be at least 3 characters")
     if len(body.password) < 8:

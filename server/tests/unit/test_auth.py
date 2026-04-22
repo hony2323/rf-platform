@@ -116,6 +116,22 @@ async def test_signup_allows_immediate_me(client: AsyncClient):
     assert resp.json()["email"] == "signedup@example.com"
 
 
+async def test_signup_rejects_sixth_user(client: AsyncClient):
+    for i in range(5):
+        resp = await client.post(
+            "/auth/signup",
+            json={"email": f"user{i}@example.com", "password": "secret123"},
+        )
+        assert resp.status_code == 201
+        await client.post("/auth/logout")
+
+    resp = await client.post(
+        "/auth/signup",
+        json={"email": "user5@example.com", "password": "secret123"},
+    )
+    assert resp.status_code == 409
+
+
 async def test_login_sets_cookie_attributes(client: AsyncClient, registered_user):
     email, password = registered_user
     resp = await client.post("/auth/login", json={"email": email, "password": password})

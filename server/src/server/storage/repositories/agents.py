@@ -24,6 +24,11 @@ async def get_agents_for_user(db: AsyncSession, user_id: str) -> list[Agent]:
     return list(result.scalars().all())
 
 
+async def count_agents_for_user(db: AsyncSession, user_id: str) -> int:
+    result = await db.execute(select(Agent.id).where(Agent.user_id == user_id))
+    return len(result.scalars().all())
+
+
 async def get_agent_by_id_unscoped(db: AsyncSession, agent_id: str) -> Agent | None:
     result = await db.execute(select(Agent).where(Agent.id == agent_id))
     return result.scalar_one_or_none()

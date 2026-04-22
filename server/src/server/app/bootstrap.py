@@ -16,13 +16,19 @@ import sys
 async def _run(email: str, password: str, db_path: str) -> None:
     from server.auth.passwords import hash_password
     from server.storage.db import get_session_factory, init_db
-    from server.storage.repositories.users import create_user, get_user_by_email
+    from server.storage.repositories.users import count_users, create_user, get_user_by_email
+
+    # TODO MVP-only cap: remove or replace with plan-based quota management after MVP.
+    MAX_USERS = 5
 
     await init_db(db_path)
     async with get_session_factory()() as session:
         existing = await get_user_by_email(session, email)
         if existing is not None:
             print(f"User {email!r} already exists (id={existing.id}).", file=sys.stderr)
+            sys.exit(1)
+        if await count_users(session) >= MAX_USERS:
+            print("User limit reached for MVP.", file=sys.stderr)
             sys.exit(1)
         user = await create_user(session, email, hash_password(password))
         print(f"Created user: id={user.id}  email={user.email}")

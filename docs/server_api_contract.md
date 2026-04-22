@@ -10,6 +10,12 @@ The web app consumes these shapes directly. Do not change them without a protoco
 All HTTP routes require a valid session cookie (`rf_session`) except `POST /auth/signup`, `POST /auth/login`, and `POST /auth/logout`.
 All agent and token reads are ownership-scoped by the authenticated user's `user_id`.
 
+MVP limits currently enforced:
+
+- Maximum 5 total users
+- Maximum 5 agents per user
+- Maximum 1 active token per agent
+
 ### `POST /auth/signup`
 
 Request:
