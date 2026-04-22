@@ -26,16 +26,16 @@ export function AgentLivePage() {
 
   if (agentQuery.error instanceof ApiError && agentQuery.error.status === 404) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-950">
-        <span className="text-gray-400 text-sm">Agent not found.</span>
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <span className="text-sm text-gray-400">Agent not found.</span>
       </div>
     );
   }
 
   if (agentQuery.isError) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-950">
-        <span className="text-gray-400 text-sm">Server error. Please try again.</span>
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <span className="text-sm text-gray-400">Server error. Please try again.</span>
       </div>
     );
   }
@@ -44,43 +44,41 @@ export function AgentLivePage() {
   const isOnline = statusQuery.data?.online ?? false;
 
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col">
-      {/* Top bar */}
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:px-4 sm:py-3 bg-gray-900 border-b border-gray-800">
+    <div className="flex flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-slate-900/80">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-white/10 bg-white/[0.03] px-3 py-3 sm:px-4">
         <Link
           to="/agents"
-          className="text-gray-400 hover:text-white text-sm transition-colors"
+          className="text-sm text-gray-400 transition-colors hover:text-white"
         >
-          ← Agents
+          Back to home
         </Link>
-        <span className="text-gray-600 hidden sm:inline">|</span>
-        <span className="text-white font-medium text-sm truncate min-w-0 flex-1 sm:flex-none">
+        <span className="hidden text-gray-600 sm:inline">|</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-white sm:flex-none">
           {agentName}
         </span>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           <AgentStatusBadge online={isOnline} />
           <ViewerConnectionBadge state={connectionState} />
         </div>
       </header>
 
-      {/* Session info bar */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 sm:gap-6 sm:px-4 bg-gray-900 border-b border-gray-800 text-xs text-gray-500">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-white/10 bg-white/[0.02] px-3 py-2 text-xs text-gray-500 sm:gap-6 sm:px-4">
         <span className="min-w-0 max-w-full truncate">
-          <span className="text-gray-600 mr-1">session</span>
-          {statusQuery.data?.session_id ?? "—"}
+          <span className="mr-1 text-gray-600">session</span>
+          {statusQuery.data?.session_id ?? "--"}
         </span>
         <span className="min-w-0 max-w-full truncate">
-          <span className="text-gray-600 mr-1">heartbeat</span>
-          {statusQuery.data?.last_heartbeat_at ?? "—"}
+          <span className="mr-1 text-gray-600">heartbeat</span>
+          {statusQuery.data?.last_heartbeat_at ?? "--"}
         </span>
-        <span className="flex items-center gap-1 w-full sm:w-auto sm:ml-auto">
+        <span className="flex w-full items-center gap-1 sm:ml-auto sm:w-auto">
           <span className="text-gray-600">floor</span>
           <input
             type="number"
             inputMode="numeric"
             value={dbfsFloor}
             onChange={(e) => setDbfsFloor(Number(e.target.value))}
-            className="w-16 bg-gray-800 border border-gray-700 text-gray-300 rounded px-1 py-0.5 text-xs text-right focus:outline-none focus:border-blue-500"
+            className="w-16 rounded border border-gray-700 bg-gray-800 px-1 py-0.5 text-right text-xs text-gray-300 focus:border-blue-500 focus:outline-none"
           />
           <span className="text-gray-600">ceil</span>
           <input
@@ -88,27 +86,25 @@ export function AgentLivePage() {
             inputMode="numeric"
             value={dbfsCeiling}
             onChange={(e) => setDbfsCeiling(Number(e.target.value))}
-            className="w-16 bg-gray-800 border border-gray-700 text-gray-300 rounded px-1 py-0.5 text-xs text-right focus:outline-none focus:border-blue-500"
+            className="w-16 rounded border border-gray-700 bg-gray-800 px-1 py-0.5 text-right text-xs text-gray-300 focus:border-blue-500 focus:outline-none"
           />
           <span className="text-gray-600">dBFS</span>
         </span>
       </div>
 
-      {/* Waterfall */}
-      <main className="flex-1 flex flex-col">
+      <main className="flex flex-1 flex-col">
         <WaterfallCanvas config={config} onFrame={onFrame} dbfsFloor={dbfsFloor} dbfsCeiling={dbfsCeiling} />
 
-        {/* Error / offline panel */}
         {(connectionState === "error" || connectionState === "offline") && (
-          <div className="flex items-center justify-center py-6 px-4">
-            <div className="bg-gray-900 border border-gray-700 rounded-lg px-6 py-4 text-center max-w-md">
-              <p className="text-gray-300 text-sm font-medium">
+          <div className="flex items-center justify-center px-4 py-6">
+            <div className="max-w-md rounded-lg border border-gray-700 bg-gray-900 px-6 py-4 text-center">
+              <p className="text-sm font-medium text-gray-300">
                 {connectionState === "offline"
                   ? "Agent is offline"
                   : "Connection error"}
               </p>
               {lastError && (
-                <p className="text-gray-500 text-xs mt-1 break-words">{lastError}</p>
+                <p className="mt-1 break-words text-xs text-gray-500">{lastError}</p>
               )}
             </div>
           </div>

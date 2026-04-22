@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { login } from "../api/auth";
 import { UnauthorizedError, ApiError } from "../api/client";
@@ -34,55 +34,95 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-950 p-4">
-      <form
-        onSubmit={(e) => { void handleSubmit(e); }}
-        className="w-full max-w-sm bg-gray-900 rounded-lg p-6 sm:p-8 space-y-5 shadow-lg"
-      >
-        <h1 className="text-white text-xl font-semibold">RF Platform</h1>
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.18),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(249,115,22,0.16),_transparent_30%),linear-gradient(180deg,_#020617_0%,_#0f172a_55%,_#111827_100%)] p-4">
+      <div className="mx-auto flex min-h-screen max-w-6xl items-center justify-center">
+        <div className="grid w-full overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950/80 shadow-2xl shadow-cyan-950/30 backdrop-blur lg:grid-cols-[1.05fr_0.95fr]">
+          <section className="hidden border-r border-white/10 bg-white/5 p-10 lg:flex lg:items-end">
+            <div className="space-y-6">
+              <p className="text-xs uppercase tracking-[0.3em] text-cyan-300">
+                RF Platform
+              </p>
+              <div className="space-y-4">
+                <h1 className="max-w-lg text-4xl font-semibold leading-tight text-white">
+                  Watch live spectrum without digging through a cluttered UI.
+                </h1>
+                <p className="max-w-md text-base text-slate-300">
+                  Sign in to open your agent dashboard, create tokens, and jump
+                  straight into the live waterfall.
+                </p>
+              </div>
+            </div>
+          </section>
 
-        {error && (
-          <p className="text-red-400 text-sm">{error}</p>
-        )}
+          <section className="p-6 sm:p-8 lg:p-10">
+            <div className="mx-auto w-full max-w-md space-y-6">
+              <div className="space-y-3">
+                <Link
+                  to="/"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-400/10 text-lg font-semibold text-cyan-200 transition hover:border-cyan-300/50 hover:bg-cyan-400/20 hover:text-white"
+                >
+                  RF
+                </Link>
+                <div>
+                  <h2 className="text-3xl font-semibold text-white">Sign in</h2>
+                  <p className="mt-2 text-sm text-slate-400">
+                    Use your existing account to reach the dashboard.
+                  </p>
+                </div>
+              </div>
 
-        <div className="space-y-1">
-          <label className="text-gray-300 text-sm block" htmlFor="email">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+              <form
+                onSubmit={(e) => { void handleSubmit(e); }}
+                className="space-y-5 rounded-[1.5rem] border border-white/10 bg-white/5 p-6"
+              >
+                {error && (
+                  <p className="rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
+                    {error}
+                  </p>
+                )}
+
+                <div className="space-y-2">
+                  <label className="block text-sm text-slate-300" htmlFor="email">
+                    Email
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm text-slate-300" htmlFor="password">
+                    Password
+                  </label>
+                  <input
+                    id="password"
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full rounded-2xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting ? "Signing in..." : "Sign in"}
+                </button>
+              </form>
+            </div>
+          </section>
         </div>
-
-        <div className="space-y-1">
-          <label className="text-gray-300 text-sm block" htmlFor="password">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium rounded px-4 py-2 transition-colors"
-        >
-          {submitting ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+      </div>
     </div>
   );
 }
