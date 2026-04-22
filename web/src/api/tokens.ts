@@ -24,3 +24,12 @@ export function revokeAgentToken(
     method: "POST",
   });
 }
+
+export function deleteAgentToken(
+  agentId: string,
+  tokenId: string,
+): Promise<TokenResponse> {
+  return apiFetch<TokenResponse>(`/agents/${agentId}/tokens/${tokenId}`, {
+    method: "DELETE",
+  });
+}

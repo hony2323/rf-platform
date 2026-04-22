@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAgent } from "../api/agents";
 import { deleteAccount } from "../api/auth";
-import { useAgents } from "../hooks/useAgents";
+import { useAgents, useDeleteAgent } from "../hooks/useAgents";
 import { useAgentStatus } from "../hooks/useAgentStatus";
 import { useCurrentUser } from "../hooks/useCurrentUser";
 import { ApiError, UnauthorizedError } from "../api/client";
@@ -82,6 +82,8 @@ function CreateAgentDialog({ onClose }: { onClose: () => void }) {
 
 function AgentRow({ agent }: { agent: AgentResponse }) {
   const { data: status } = useAgentStatus(agent.id);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const { mutate: deleteAgent, isPending: isDeleting } = useDeleteAgent();
 
   return (
     <tr className="border-t border-gray-800">
@@ -113,6 +115,22 @@ function AgentRow({ agent }: { agent: AgentResponse }) {
         >
           Tokens
         </Link>
+        <button
+          type="button"
+          onClick={() => {
+            if (!confirmingDelete) {
+              setConfirmingDelete(true);
+              return;
+            }
+            deleteAgent(agent.id, {
+              onSuccess: () => setConfirmingDelete(false),
+            });
+          }}
+          disabled={isDeleting}
+          className="text-rose-400 transition-colors hover:text-rose-300 disabled:opacity-50"
+        >
+          {isDeleting ? "Deleting..." : confirmingDelete ? "Confirm delete" : "Delete"}
+        </button>
       </td>
     </tr>
   );
@@ -120,6 +138,8 @@ function AgentRow({ agent }: { agent: AgentResponse }) {
 
 function AgentCard({ agent }: { agent: AgentResponse }) {
   const { data: status } = useAgentStatus(agent.id);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const { mutate: deleteAgent, isPending: isDeleting } = useDeleteAgent();
 
   return (
     <div className="flex flex-col gap-2 rounded-[1.5rem] border border-white/10 bg-slate-900/80 p-4">
@@ -151,6 +171,22 @@ function AgentCard({ agent }: { agent: AgentResponse }) {
         >
           Tokens
         </Link>
+        <button
+          type="button"
+          onClick={() => {
+            if (!confirmingDelete) {
+              setConfirmingDelete(true);
+              return;
+            }
+            deleteAgent(agent.id, {
+              onSuccess: () => setConfirmingDelete(false),
+            });
+          }}
+          disabled={isDeleting}
+          className="text-rose-400 transition-colors hover:text-rose-300 disabled:opacity-50"
+        >
+          {isDeleting ? "Deleting..." : confirmingDelete ? "Confirm delete" : "Delete"}
+        </button>
       </div>
     </div>
   );

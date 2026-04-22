@@ -60,3 +60,12 @@ async def touch_last_used(db: AsyncSession, token_id: str) -> None:
     if token:
         token.last_used_at = datetime.now(timezone.utc)
         await db.commit()
+
+
+async def delete_token(db: AsyncSession, token_id: str, agent_id: str) -> AgentToken | None:
+    token = await get_token_by_id(db, token_id, agent_id)
+    if token is None:
+        return None
+    await db.delete(token)
+    await db.commit()
+    return token

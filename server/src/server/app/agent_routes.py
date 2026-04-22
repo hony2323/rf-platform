@@ -97,6 +97,24 @@ async def get_agent(
     return agent
 
 
+@router.delete("/{agent_id}", status_code=204)
+async def delete_agent(
+    agent_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await agents_repo.delete_agent(db, agent_id, current_user.id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    registry = getattr(request.app.state, "registry", None)
+    if registry is not None:
+        live_session = registry.get_session_by_agent(agent_id)
+        if live_session is not None:
+            registry.remove_session(live_session.session_id)
+
+
 @router.get("/{agent_id}/status", response_model=AgentStatusResponse)
 async def get_agent_status(
     agent_id: str,
@@ -166,4 +184,20 @@ async def revoke_token(
     token = await tokens_repo.revoke_token(db, token_id, agent_id)
     if token is None:
         raise HTTPException(status_code=404, detail="Token not found or already revoked")
+    return TokenResponse.from_orm(token)
+
+
+@router.delete("/{agent_id}/tokens/{token_id}", response_model=TokenResponse)
+async def delete_token(
+    agent_id: str,
+    token_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    agent = await agents_repo.get_agent_by_id(db, agent_id, current_user.id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    token = await tokens_repo.delete_token(db, token_id, agent_id)
+    if token is None:
+        raise HTTPException(status_code=404, detail="Token not found")
     return TokenResponse.from_orm(token)

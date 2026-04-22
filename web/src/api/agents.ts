@@ -19,3 +19,9 @@ export function createAgent(body: AgentCreateRequest): Promise<AgentResponse> {
     body: JSON.stringify(body),
   });
 }
+
+export function deleteAgent(id: string): Promise<void> {
+  return apiFetch<void>(`/agents/${id}`, {
+    method: "DELETE",
+  });
+}

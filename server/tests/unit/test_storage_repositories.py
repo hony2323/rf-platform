@@ -124,3 +124,28 @@ async def test_delete_user_cascades_agents_and_tokens(db: AsyncSession):
 
     # Sanity check the old token row is gone entirely.
     assert await tokens_repo.get_token_by_id(db, token.id, agent.id) is None
+
+
+async def test_delete_token_removes_row(db: AsyncSession):
+    user = await users_repo.create_user(db, "token-delete@example.com", "hash")
+    agent = await agents_repo.create_agent(db, user.id, "Token Agent", "node_token_delete")
+    token = await tokens_repo.create_token(db, agent.id, "token_delete_hash")
+
+    deleted = await tokens_repo.delete_token(db, token.id, agent.id)
+
+    assert deleted is not None
+    assert deleted.id == token.id
+    assert await tokens_repo.get_token_by_id(db, token.id, agent.id) is None
+
+
+async def test_delete_agent_cascades_tokens(db: AsyncSession):
+    user = await users_repo.create_user(db, "agent-delete@example.com", "hash")
+    agent = await agents_repo.create_agent(db, user.id, "Delete Me", "node_agent_delete")
+    token = await tokens_repo.create_token(db, agent.id, "agent_delete_hash")
+
+    deleted = await agents_repo.delete_agent(db, agent.id, user.id)
+
+    assert deleted is not None
+    assert deleted.id == agent.id
+    assert await agents_repo.get_agent_by_id_unscoped(db, agent.id) is None
+    assert await tokens_repo.get_token_by_id(db, token.id, agent.id) is None
