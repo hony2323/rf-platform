@@ -28,6 +28,12 @@ async def get_tokens_for_agent(
     return list(result.scalars().all())
 
 
+async def count_tokens_for_agent(
+    db: AsyncSession, agent_id: str, include_revoked: bool = False
+) -> int:
+    return len(await get_tokens_for_agent(db, agent_id, include_revoked=include_revoked))
+
+
 async def get_token_by_id(db: AsyncSession, token_id: str, agent_id: str) -> AgentToken | None:
     result = await db.execute(
         select(AgentToken).where(AgentToken.id == token_id, AgentToken.agent_id == agent_id)

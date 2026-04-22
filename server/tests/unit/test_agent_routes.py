@@ -121,6 +121,21 @@ async def test_list_agents_returns_own_only(auth_client: AsyncClient):
     assert len(resp.json()) == 2
 
 
+async def test_create_agent_rejects_sixth_agent(auth_client: AsyncClient):
+    for i in range(5):
+        resp = await auth_client.post(
+            "/agents",
+            json={"name": f"A{i}", "stable_node_id": f"max_agent_{i}"},
+        )
+        assert resp.status_code == 201
+
+    resp = await auth_client.post(
+        "/agents",
+        json={"name": "A5", "stable_node_id": "max_agent_5"},
+    )
+    assert resp.status_code == 409
+
+
 # --- Ownership isolation ---
 
 
@@ -161,17 +176,53 @@ async def test_create_token_returns_raw_once(auth_client: AsyncClient):
     assert data["label"] == "dev"
 
 
+async def test_create_token_rejects_second_active_token(auth_client: AsyncClient):
+    agent = (
+        await auth_client.post("/agents", json={"name": "A", "stable_node_id": "n_token_limit"})
+    ).json()
+    first = await auth_client.post(f"/agents/{agent['id']}/tokens", json={"label": "first"})
+    assert first.status_code == 201
+    second = await auth_client.post(f"/agents/{agent['id']}/tokens", json={"label": "second"})
+    assert second.status_code == 409
+
+
+async def test_create_token_allowed_after_delete(auth_client: AsyncClient):
+    agent = (
+        await auth_client.post(
+            "/agents", json={"name": "A", "stable_node_id": "n_token_after_delete"}
+        )
+    ).json()
+    tok = (await auth_client.post(f"/agents/{agent['id']}/tokens", json={})).json()
+    deleted = await auth_client.request("DELETE", f"/agents/{agent['id']}/tokens/{tok['id']}")
+    assert deleted.status_code == 200
+    recreated = await auth_client.post(f"/agents/{agent['id']}/tokens", json={"label": "new"})
+    assert recreated.status_code == 201
+
+
+async def test_create_token_allowed_after_revoke(auth_client: AsyncClient):
+    agent = (
+        await auth_client.post(
+            "/agents", json={"name": "A", "stable_node_id": "n_token_after_revoke"}
+        )
+    ).json()
+    tok = (await auth_client.post(f"/agents/{agent['id']}/tokens", json={})).json()
+    revoked = await auth_client.post(f"/agents/{agent['id']}/tokens/{tok['id']}/revoke")
+    assert revoked.status_code == 200
+    recreated = await auth_client.post(f"/agents/{agent['id']}/tokens", json={"label": "new"})
+    assert recreated.status_code == 201
+
+
 async def test_list_tokens_excludes_revoked(auth_client: AsyncClient):
     agent = (await auth_client.post("/agents", json={"name": "A", "stable_node_id": "n2"})).json()
     t1 = (await auth_client.post(f"/agents/{agent['id']}/tokens", json={})).json()
+    await auth_client.post(f"/agents/{agent['id']}/tokens/{t1['id']}/revoke")
     t2 = (await auth_client.post(f"/agents/{agent['id']}/tokens", json={})).json()
-    await auth_client.post(f"/agents/{agent['id']}/tokens/{t2['id']}/revoke")
 
     resp = await auth_client.get(f"/agents/{agent['id']}/tokens")
     assert resp.status_code == 200
     ids = [t["id"] for t in resp.json()]
-    assert t1["id"] in ids
-    assert t2["id"] not in ids
+    assert t1["id"] not in ids
+    assert t2["id"] in ids
 
 
 async def test_revoke_token(auth_client: AsyncClient):

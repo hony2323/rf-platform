@@ -24,6 +24,11 @@ async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     return result.scalar_one_or_none()
 
 
+async def count_users(db: AsyncSession) -> int:
+    result = await db.execute(select(User.id))
+    return len(result.scalars().all())
+
+
 async def delete_user(db: AsyncSession, user_id: str) -> bool:
     user = await get_user_by_id(db, user_id)
     if user is None:

@@ -49,6 +49,16 @@ async def test_bootstrap_hashes_password():
     assert len(user.password_hash) > 20
 
 
+async def test_bootstrap_rejects_sixth_user(capsys):
+    for i in range(5):
+        await _run(f"admin{i}@example.com", "secret", ":memory:")
+    with pytest.raises(SystemExit) as exc_info:
+        await _run("admin5@example.com", "secret", ":memory:")
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "User limit reached for MVP" in captured.err
+
+
 def test_settings_defaults():
     s = load_settings()
     assert s.db_path == "rf_platform.db"

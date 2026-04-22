@@ -48,6 +48,14 @@ Exits with status 1 if the email already exists.
 
 See `../docs/server_api_contract.md` for frozen JSON shapes.
 
+MVP limits currently enforced by the server:
+
+- Maximum 5 total users
+- Maximum 5 agents per user
+- Maximum 1 active token per agent
+
+These are temporary MVP caps and are marked with `TODO` comments in the server code.
+
 | Endpoint | Auth | Description |
 |---|---|---|
 | `POST /auth/signup` | - | Create account, sets session cookie |
