@@ -46,33 +46,38 @@ export function AgentLivePage() {
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
       {/* Top bar */}
-      <header className="flex items-center gap-3 px-4 py-3 bg-gray-900 border-b border-gray-800">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:px-4 sm:py-3 bg-gray-900 border-b border-gray-800">
         <Link
           to="/agents"
           className="text-gray-400 hover:text-white text-sm transition-colors"
         >
           ← Agents
         </Link>
-        <span className="text-gray-600">|</span>
-        <span className="text-white font-medium text-sm">{agentName}</span>
-        <AgentStatusBadge online={isOnline} />
-        <ViewerConnectionBadge state={connectionState} />
+        <span className="text-gray-600 hidden sm:inline">|</span>
+        <span className="text-white font-medium text-sm truncate min-w-0 flex-1 sm:flex-none">
+          {agentName}
+        </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <AgentStatusBadge online={isOnline} />
+          <ViewerConnectionBadge state={connectionState} />
+        </div>
       </header>
 
       {/* Session info bar */}
-      <div className="flex items-center gap-6 px-4 py-2 bg-gray-900 border-b border-gray-800 text-xs text-gray-500">
-        <span>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 sm:gap-6 sm:px-4 bg-gray-900 border-b border-gray-800 text-xs text-gray-500">
+        <span className="min-w-0 max-w-full truncate">
           <span className="text-gray-600 mr-1">session</span>
           {statusQuery.data?.session_id ?? "—"}
         </span>
-        <span>
+        <span className="min-w-0 max-w-full truncate">
           <span className="text-gray-600 mr-1">heartbeat</span>
           {statusQuery.data?.last_heartbeat_at ?? "—"}
         </span>
-        <span className="flex items-center gap-1 ml-auto">
+        <span className="flex items-center gap-1 w-full sm:w-auto sm:ml-auto">
           <span className="text-gray-600">floor</span>
           <input
             type="number"
+            inputMode="numeric"
             value={dbfsFloor}
             onChange={(e) => setDbfsFloor(Number(e.target.value))}
             className="w-16 bg-gray-800 border border-gray-700 text-gray-300 rounded px-1 py-0.5 text-xs text-right focus:outline-none focus:border-blue-500"
@@ -80,6 +85,7 @@ export function AgentLivePage() {
           <span className="text-gray-600">ceil</span>
           <input
             type="number"
+            inputMode="numeric"
             value={dbfsCeiling}
             onChange={(e) => setDbfsCeiling(Number(e.target.value))}
             className="w-16 bg-gray-800 border border-gray-700 text-gray-300 rounded px-1 py-0.5 text-xs text-right focus:outline-none focus:border-blue-500"
@@ -94,7 +100,7 @@ export function AgentLivePage() {
 
         {/* Error / offline panel */}
         {(connectionState === "error" || connectionState === "offline") && (
-          <div className="flex items-center justify-center py-6">
+          <div className="flex items-center justify-center py-6 px-4">
             <div className="bg-gray-900 border border-gray-700 rounded-lg px-6 py-4 text-center max-w-md">
               <p className="text-gray-300 text-sm font-medium">
                 {connectionState === "offline"
@@ -102,7 +108,7 @@ export function AgentLivePage() {
                   : "Connection error"}
               </p>
               {lastError && (
-                <p className="text-gray-500 text-xs mt-1">{lastError}</p>
+                <p className="text-gray-500 text-xs mt-1 break-words">{lastError}</p>
               )}
             </div>
           </div>
