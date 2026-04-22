@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import time
+from collections.abc import Callable
 from contextlib import suppress
 from typing import TYPE_CHECKING, Protocol
 
@@ -109,12 +110,14 @@ class Session:
         codec: ProtocolCodec,
         timings: PipelineTiming | None = None,
         metrics: MetricsCollector | None = None,
+        on_connected: Callable[[], None] | None = None,
     ) -> None:
         self._config = config
         self._transport = transport
         self._codec = codec
         self._timings = timings
         self._metrics = metrics
+        self._on_connected = on_connected
 
         self._state = ConnectionState.DISCONNECTED
         self._session_id: str | None = None
@@ -159,6 +162,8 @@ class Session:
             await self._handshake()
             self._frame_index = 0
             self._state = ConnectionState.STREAMING
+            if self._on_connected is not None:
+                self._on_connected()
             await self._stream(frame_queue)
         finally:
             self._state = ConnectionState.DISCONNECTED

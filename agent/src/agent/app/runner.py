@@ -40,6 +40,7 @@ class RunStopReason(Enum):
 class RunResult:
     reason: RunStopReason
     error: BaseException | None = None
+    connected: bool = False
 
 
 class BuildFailure(Exception):
@@ -67,7 +68,9 @@ SourceFactory = Callable[[AgentConfig], IQSource]
 ProcessorFactory = Callable[[AgentConfig], Processor]
 TransportFactory = Callable[[AgentConfig], Transport]
 CodecFactory = Callable[[AgentConfig], ProtocolCodec]
-SessionFactory = Callable[[AgentConfig, Transport, ProtocolCodec], Any]
+SessionFactory = Callable[
+    [AgentConfig, Transport, ProtocolCodec, "Callable[[], None] | None"], Any
+]
 TelemetryFactory = Callable[
     [AgentConfig, Any, MetricsCollector, Transport, ProtocolCodec],
     _TelemetryRunnable,
@@ -148,10 +151,18 @@ class AgentRunner:
             # ---- Build phase -----------------------------------------------
             # Any exception here (including source.start()) is a BuildFailure.
             # We do not retry build failures.
+            connected_event = asyncio.Event()
+
+            def _on_connected() -> None:
+                print("[rf-agent] connected", file=sys.stderr)
+                connected_event.set()
+
             try:
                 transport = self._factories.make_transport(config)
                 codec = self._factories.make_codec(config)
-                session = self._factories.make_session(config, transport, codec)
+                session = self._factories.make_session(
+                    config, transport, codec, _on_connected
+                )
                 source = self._factories.make_source(config)
                 processor = self._factories.make_processor(config)
                 metrics = MetricsCollector()
@@ -216,6 +227,7 @@ class AgentRunner:
                     else RunStopReason.NORMAL_EXIT
                 ),
                 error=first_error,
+                connected=connected_event.is_set(),
             )
 
         finally:
@@ -264,7 +276,9 @@ class AgentRunner:
                     file=sys.stderr,
                 )
 
-            # Runtime failure path — sleep, then grow the delay for next time
+            if result.connected:
+                delay = reconnect.initial_delay_s
+
             sleep_duration = delay
             if reconnect.jitter:
                 sleep_duration = delay * (0.5 + random.random() * 0.5)
