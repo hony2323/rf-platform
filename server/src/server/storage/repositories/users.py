@@ -22,3 +22,12 @@ async def get_user_by_id(db: AsyncSession, user_id: str) -> User | None:
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     result = await db.execute(select(User).where(User.email == email))
     return result.scalar_one_or_none()
+
+
+async def delete_user(db: AsyncSession, user_id: str) -> bool:
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        return False
+    await db.delete(user)
+    await db.commit()
+    return True

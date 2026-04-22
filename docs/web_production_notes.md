@@ -4,11 +4,11 @@ This file keeps implementation notes out of the production UI.
 
 ## Deferred Features
 
-- Browser sign up is not implemented because the current server only exposes login, logout, and current-user session endpoints.
-- Browser account deletion is not implemented because there is no server endpoint for deleting the authenticated user.
+- Browser sign up is implemented.
+- Browser account deletion is implemented.
 
 ## Good Next Frontend Steps
 
 - Add agent search and sorting on the dashboard.
 - Add recent activity or last-seen summaries for agents.
-- Add an account settings page when supporting server endpoints exist.
+- Add a fuller account settings page around the current auth endpoints.

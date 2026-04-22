@@ -67,6 +67,55 @@ async def test_login_success(client: AsyncClient, registered_user):
     assert "session" in resp.cookies
 
 
+async def test_signup_success_sets_cookie(client: AsyncClient):
+    resp = await client.post(
+        "/auth/signup",
+        json={"email": "new@example.com", "password": "secret123"},
+    )
+    assert resp.status_code == 201
+    assert resp.json()["email"] == "new@example.com"
+    assert "session" in resp.cookies
+
+
+async def test_signup_rejects_duplicate_email(client: AsyncClient, registered_user):
+    email, _ = registered_user
+    resp = await client.post(
+        "/auth/signup",
+        json={"email": email, "password": "secret123"},
+    )
+    assert resp.status_code == 409
+
+
+async def test_signup_duplicate_email_wins_over_password_validation(
+    client: AsyncClient,
+    registered_user,
+):
+    email, _ = registered_user
+    resp = await client.post(
+        "/auth/signup",
+        json={"email": email, "password": "short"},
+    )
+    assert resp.status_code == 409
+
+
+async def test_signup_rejects_short_password_for_new_user(client: AsyncClient):
+    resp = await client.post(
+        "/auth/signup",
+        json={"email": "fresh@example.com", "password": "short"},
+    )
+    assert resp.status_code == 422
+
+
+async def test_signup_allows_immediate_me(client: AsyncClient):
+    await client.post(
+        "/auth/signup",
+        json={"email": "signedup@example.com", "password": "secret123"},
+    )
+    resp = await client.get("/me")
+    assert resp.status_code == 200
+    assert resp.json()["email"] == "signedup@example.com"
+
+
 async def test_login_sets_cookie_attributes(client: AsyncClient, registered_user):
     email, password = registered_user
     resp = await client.post("/auth/login", json={"email": email, "password": password})
@@ -118,6 +167,55 @@ async def test_logout_deletes_cookie_with_path(client: AsyncClient, registered_u
     assert "samesite=lax" in set_cookie
 
 
+async def test_delete_account_requires_auth(client: AsyncClient):
+    resp = await client.request("DELETE", "/me", json={"password": "secret123"})
+    assert resp.status_code == 401
+
+
+async def test_delete_account_requires_correct_password(client: AsyncClient, registered_user):
+    email, password = registered_user
+    await client.post("/auth/login", json={"email": email, "password": password})
+    resp = await client.request("DELETE", "/me", json={"password": "wrong"})
+    assert resp.status_code == 401
+
+
+async def test_delete_account_removes_user_and_clears_cookie(client: AsyncClient, registered_user):
+    email, password = registered_user
+    await client.post("/auth/login", json={"email": email, "password": password})
+
+    resp = await client.request("DELETE", "/me", json={"password": password})
+
+    assert resp.status_code == 204
+    me_resp = await client.get("/me")
+    assert me_resp.status_code == 401
+
+
+async def test_delete_account_cascades_owned_agents_and_tokens(client: AsyncClient):
+    signup = await client.post(
+        "/auth/signup",
+        json={"email": "owner@example.com", "password": "secret123"},
+    )
+    assert signup.status_code == 201
+
+    created_agent = await client.post(
+        "/agents",
+        json={"name": "Owned Agent", "stable_node_id": "node_delete_me"},
+    )
+    agent_id = created_agent.json()["id"]
+
+    created_token = await client.post(
+        f"/agents/{agent_id}/tokens",
+        json={"label": "temporary"},
+    )
+    assert created_token.status_code == 201
+
+    delete_resp = await client.request("DELETE", "/me", json={"password": "secret123"})
+    assert delete_resp.status_code == 204
+
+    agents_resp = await client.get("/agents")
+    assert agents_resp.status_code == 401
+
+
 # --- secure=True (production) mode ---
 
 
@@ -132,10 +230,45 @@ async def test_login_sets_secure_none_cookie(secure_client: AsyncClient, registe
     assert "path=/" in set_cookie
 
 
+async def test_signup_sets_secure_none_cookie(secure_client: AsyncClient):
+    resp = await secure_client.post(
+        "/auth/signup",
+        json={"email": "secure@example.com", "password": "secret123"},
+    )
+    assert resp.status_code == 201
+    set_cookie = resp.headers["set-cookie"].lower()
+    assert "httponly" in set_cookie
+    assert "samesite=none" in set_cookie
+    assert "secure" in set_cookie
+    assert "path=/" in set_cookie
+
+
 async def test_logout_deletes_secure_cookie(secure_client: AsyncClient, registered_user_secure):
     email, password = registered_user_secure
     await secure_client.post("/auth/login", json={"email": email, "password": password})
     resp = await secure_client.post("/auth/logout")
+    set_cookie = resp.headers["set-cookie"].lower()
+    assert "path=/" in set_cookie
+    assert "samesite=none" in set_cookie
+    assert "secure" in set_cookie
+
+
+async def test_delete_account_deletes_secure_cookie(
+    secure_client: AsyncClient, registered_user_secure
+):
+    email, password = registered_user_secure
+    login_resp = await secure_client.post(
+        "/auth/login", json={"email": email, "password": password}
+    )
+    session_cookie = login_resp.cookies.get("session")
+    assert session_cookie is not None
+    resp = await secure_client.request(
+        "DELETE",
+        "/me",
+        json={"password": password},
+        headers={"cookie": f"session={session_cookie}"},
+    )
+    assert resp.status_code == 204
     set_cookie = resp.headers["set-cookie"].lower()
     assert "path=/" in set_cookie
     assert "samesite=none" in set_cookie

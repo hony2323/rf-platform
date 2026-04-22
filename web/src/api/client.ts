@@ -62,24 +62,31 @@ async function extractErrorMessage(res: Response): Promise<string> {
   return res.statusText;
 }
 
+interface ApiFetchOptions extends RequestInit {
+  redirectOnUnauthorized?: boolean;
+}
+
 export async function apiFetch<T>(
   path: string,
-  init: RequestInit = {},
+  init: ApiFetchOptions = {},
 ): Promise<T> {
-  const caller = normalizeHeaders(init.headers);
+  const { redirectOnUnauthorized = true, ...requestInit } = init;
+  const caller = normalizeHeaders(requestInit.headers);
   const auto: Record<string, string> =
-    typeof init.body === "string" && !("content-type" in caller) && !("Content-Type" in caller)
+    typeof requestInit.body === "string" && !("content-type" in caller) && !("Content-Type" in caller)
       ? { "Content-Type": "application/json" }
       : {};
 
   const res = await fetch(apiUrl(path), {
-    ...init,
+    ...requestInit,
     credentials: "include",
     headers: { ...auto, ...caller },
   });
 
   if (res.status === 401) {
-    redirectToLogin();
+    if (redirectOnUnauthorized) {
+      redirectToLogin();
+    }
     throw new UnauthorizedError();
   }
 

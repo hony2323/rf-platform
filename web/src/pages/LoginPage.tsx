@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { login } from "../api/auth";
+import { login, signup } from "../api/auth";
 import { UnauthorizedError, ApiError } from "../api/client";
 
 export function LoginPage() {
+  const [mode, setMode] = useState<"login" | "signup">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,14 +18,19 @@ export function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const user = await login(email, password);
+      const action = mode === "login" ? login : signup;
+      const user = await action(email, password);
       queryClient.setQueryData(["me"], user);
       void navigate("/agents");
     } catch (err) {
       if (err instanceof UnauthorizedError) {
         setError("Invalid email or password.");
       } else if (err instanceof ApiError) {
-        setError(err.message || "Login failed.");
+        if (err.status === 409) {
+          setError("An account with this email already exists.");
+        } else {
+          setError(err.message || (mode === "login" ? "Login failed." : "Signup failed."));
+        }
       } else {
         setError("Unexpected error. Try again.");
       }
@@ -64,11 +70,46 @@ export function LoginPage() {
                   RF
                 </Link>
                 <div>
-                  <h2 className="text-3xl font-semibold text-white">Sign in</h2>
+                  <h2 className="text-3xl font-semibold text-white">
+                    {mode === "login" ? "Sign in" : "Create account"}
+                  </h2>
                   <p className="mt-2 text-sm text-slate-400">
-                    Use your existing account to reach the dashboard.
+                    {mode === "login"
+                      ? "Use your existing account to reach the dashboard."
+                      : "Create your account and start managing agents right away."}
                   </p>
                 </div>
+              </div>
+
+              <div className="inline-flex rounded-2xl border border-white/10 bg-white/5 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("login");
+                    setError(null);
+                  }}
+                  className={`rounded-2xl px-4 py-2 text-sm transition ${
+                    mode === "login"
+                      ? "bg-cyan-400 text-slate-950"
+                      : "text-slate-300 hover:text-white"
+                  }`}
+                >
+                  Sign in
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("signup");
+                    setError(null);
+                  }}
+                  className={`rounded-2xl px-4 py-2 text-sm transition ${
+                    mode === "signup"
+                      ? "bg-cyan-400 text-slate-950"
+                      : "text-slate-300 hover:text-white"
+                  }`}
+                >
+                  Sign up
+                </button>
               </div>
 
               <form
@@ -116,7 +157,13 @@ export function LoginPage() {
                   disabled={submitting}
                   className="w-full rounded-2xl bg-cyan-400 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {submitting ? "Signing in..." : "Sign in"}
+                  {submitting
+                    ? mode === "login"
+                      ? "Signing in..."
+                      : "Creating account..."
+                    : mode === "login"
+                      ? "Sign in"
+                      : "Create account"}
                 </button>
               </form>
             </div>

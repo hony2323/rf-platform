@@ -2,9 +2,11 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAgent } from "../api/agents";
+import { deleteAccount } from "../api/auth";
 import { useAgents } from "../hooks/useAgents";
 import { useAgentStatus } from "../hooks/useAgentStatus";
 import { useCurrentUser } from "../hooks/useCurrentUser";
+import { ApiError, UnauthorizedError } from "../api/client";
 import { AgentStatusBadge } from "../components/AgentStatusBadge";
 import type { AgentResponse } from "../types/api";
 
@@ -154,8 +156,104 @@ function AgentCard({ agent }: { agent: AgentResponse }) {
   );
 }
 
+function DeleteAccountDialog({
+  email,
+  onClose,
+}: {
+  email: string;
+  onClose: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { mutate, isPending, error } = useMutation({
+    mutationFn: () => deleteAccount(password),
+    onSuccess: async () => {
+      queryClient.setQueryData(["me"], null);
+      await queryClient.invalidateQueries({ queryKey: ["me"] });
+      navigate("/login", { replace: true });
+    },
+  });
+
+  const canDelete = password.trim() !== "" && confirmation === "DELETE";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-md rounded-[1.75rem] border border-rose-400/20 bg-slate-900 p-6">
+        <h2 className="mb-2 text-lg font-semibold text-white">Delete account</h2>
+        <p className="mb-5 text-sm text-slate-400">
+          This permanently deletes <span className="text-white">{email}</span>,
+          all owned agents, and all agent tokens.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm text-gray-400" htmlFor="delete-password">
+              Password
+            </label>
+            <input
+              id="delete-password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded-2xl border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-rose-400 focus:outline-none"
+              disabled={isPending}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm text-gray-400" htmlFor="delete-confirmation">
+              Type DELETE to confirm
+            </label>
+            <input
+              id="delete-confirmation"
+              type="text"
+              value={confirmation}
+              onChange={(e) => setConfirmation(e.target.value)}
+              className="w-full rounded-2xl border border-gray-700 bg-gray-800 px-3 py-2 text-sm uppercase tracking-[0.2em] text-white focus:border-rose-400 focus:outline-none"
+              disabled={isPending}
+            />
+          </div>
+
+          {error && (
+            <p className="text-sm text-rose-300">
+              {error instanceof UnauthorizedError || (error instanceof ApiError && error.status === 401)
+                ? "Incorrect password."
+                : error instanceof Error
+                  ? error.message
+                  : "Failed to delete account."}
+            </p>
+          )}
+        </div>
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-400 transition-colors hover:text-gray-300"
+            disabled={isPending}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => mutate()}
+            disabled={isPending || !canDelete}
+            className="rounded-2xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:opacity-50"
+          >
+            {isPending ? "Deleting..." : "Delete account"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AgentsPage() {
   const [showCreate, setShowCreate] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const { data: agents, isLoading, error } = useAgents();
   const { data: currentUser } = useCurrentUser();
 
@@ -178,6 +276,12 @@ export function AgentsPage() {
   return (
     <div className="space-y-6">
       {showCreate && <CreateAgentDialog onClose={() => setShowCreate(false)} />}
+      {showDeleteAccount && currentUser && (
+        <DeleteAccountDialog
+          email={currentUser.email}
+          onClose={() => setShowDeleteAccount(false)}
+        />
+      )}
 
       <section className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
         <div className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
@@ -284,6 +388,20 @@ export function AgentsPage() {
               <p>2. Generate a token only when you are ready to connect a device.</p>
               <p>3. Open the live page to verify the first frames are arriving.</p>
             </div>
+          </div>
+
+          <div className="rounded-[1.5rem] border border-rose-400/20 bg-rose-400/10 p-5">
+            <h3 className="text-base font-semibold text-white">Account</h3>
+            <p className="mt-3 text-sm text-rose-50/90">
+              Delete your account and all owned agents if you need a full reset.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowDeleteAccount(true)}
+              className="mt-4 rounded-2xl border border-rose-300/30 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-400/20"
+            >
+              Delete account
+            </button>
           </div>
         </aside>
       </section>
