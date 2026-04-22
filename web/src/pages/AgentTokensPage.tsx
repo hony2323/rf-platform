@@ -32,7 +32,7 @@ function CreateTokenDialog({
 
   if (created) {
     return (
-      <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
         <div className="bg-gray-900 rounded-lg p-6 w-full max-w-md">
           <h2 className="text-white text-lg font-semibold mb-4">Token created</h2>
           <p className="text-yellow-400 text-sm font-bold mb-2">
@@ -62,7 +62,7 @@ function CreateTokenDialog({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
       <div className="bg-gray-900 rounded-lg p-6 w-full max-w-md">
         <h2 className="text-white text-lg font-semibold mb-4">Create token</h2>
         <form onSubmit={handleSubmit}>
@@ -127,15 +127,15 @@ export function AgentTokensPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 p-8">
+    <div className="min-h-screen bg-gray-950 p-4 sm:p-8">
       {showCreate && (
         <CreateTokenDialog agentId={agentId!} onClose={() => setShowCreate(false)} />
       )}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-white text-xl font-semibold">Tokens</h1>
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h1 className="text-white text-lg sm:text-xl font-semibold">Tokens</h1>
         <button
           onClick={() => setShowCreate(true)}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded transition-colors"
+          className="px-3 py-2 sm:px-4 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded transition-colors whitespace-nowrap"
         >
           Create token
         </button>
@@ -144,38 +144,63 @@ export function AgentTokensPage() {
       {tokens && tokens.length === 0 ? (
         <p className="text-gray-400 text-sm">No tokens found.</p>
       ) : (
-        <div className="bg-gray-900 rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="text-left">
-                <th className="py-3 px-4 text-gray-400 text-xs font-medium uppercase tracking-wider">Label</th>
-                <th className="py-3 px-4 text-gray-400 text-xs font-medium uppercase tracking-wider">Created</th>
-                <th className="py-3 px-4 text-gray-400 text-xs font-medium uppercase tracking-wider"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {tokens?.map((token) => (
-                <tr key={token.id} className="border-t border-gray-800">
-                  <td className="py-3 px-4 text-white text-sm">
-                    {token.label ?? <span className="text-gray-600 italic">No label</span>}
-                  </td>
-                  <td className="py-3 px-4 text-gray-400 text-sm">
-                    {new Date(token.created_at).toLocaleString()}
-                  </td>
-                  <td className="py-3 px-4 text-sm text-right">
-                    <button
-                      onClick={() => revoke(token.id)}
-                      disabled={isRevoking && revokingId === token.id}
-                      className="text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
-                    >
-                      {isRevoking && revokingId === token.id ? "Revoking…" : "Revoke"}
-                    </button>
-                  </td>
+        <>
+          {/* Mobile card list */}
+          <div className="flex flex-col gap-2 sm:hidden">
+            {tokens?.map((token) => (
+              <div key={token.id} className="bg-gray-900 rounded-lg p-4 flex flex-col gap-2">
+                <div className="text-white text-sm break-words">
+                  {token.label ?? <span className="text-gray-600 italic">No label</span>}
+                </div>
+                <div className="text-gray-400 text-xs">
+                  {new Date(token.created_at).toLocaleString()}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => revoke(token.id)}
+                    disabled={isRevoking && revokingId === token.id}
+                    className="text-red-400 hover:text-red-300 text-sm transition-colors disabled:opacity-50"
+                  >
+                    {isRevoking && revokingId === token.id ? "Revoking…" : "Revoke"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Desktop table */}
+          <div className="hidden sm:block bg-gray-900 rounded-lg overflow-hidden">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left">
+                  <th className="py-3 px-4 text-gray-400 text-xs font-medium uppercase tracking-wider">Label</th>
+                  <th className="py-3 px-4 text-gray-400 text-xs font-medium uppercase tracking-wider">Created</th>
+                  <th className="py-3 px-4 text-gray-400 text-xs font-medium uppercase tracking-wider"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {tokens?.map((token) => (
+                  <tr key={token.id} className="border-t border-gray-800">
+                    <td className="py-3 px-4 text-white text-sm">
+                      {token.label ?? <span className="text-gray-600 italic">No label</span>}
+                    </td>
+                    <td className="py-3 px-4 text-gray-400 text-sm">
+                      {new Date(token.created_at).toLocaleString()}
+                    </td>
+                    <td className="py-3 px-4 text-sm text-right">
+                      <button
+                        onClick={() => revoke(token.id)}
+                        disabled={isRevoking && revokingId === token.id}
+                        className="text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                      >
+                        {isRevoking && revokingId === token.id ? "Revoking…" : "Revoke"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
