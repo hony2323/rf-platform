@@ -76,6 +76,32 @@ async def test_create_agent(auth_client: AsyncClient):
     assert "id" in data
 
 
+async def test_delete_agent(auth_client: AsyncClient):
+    created = (
+        await auth_client.post("/agents", json={"name": "A", "stable_node_id": "delete_agent_1"})
+    ).json()
+    resp = await auth_client.request("DELETE", f"/agents/{created['id']}")
+    assert resp.status_code == 204
+    missing = await auth_client.get(f"/agents/{created['id']}")
+    assert missing.status_code == 404
+
+
+async def test_delete_agent_removes_tokens(auth_client: AsyncClient):
+    agent = (
+        await auth_client.post("/agents", json={"name": "A", "stable_node_id": "delete_agent_2"})
+    ).json()
+    token = (await auth_client.post(f"/agents/{agent['id']}/tokens", json={"label": "x"})).json()
+    resp = await auth_client.request("DELETE", f"/agents/{agent['id']}")
+    assert resp.status_code == 204
+    tokens = await auth_client.get(f"/agents/{agent['id']}/tokens")
+    assert tokens.status_code == 404
+    # Token should also be inaccessible through its old owner-scoped path.
+    deleted_token = await auth_client.request(
+        "DELETE", f"/agents/{agent['id']}/tokens/{token['id']}"
+    )
+    assert deleted_token.status_code == 404
+
+
 async def test_get_agent(auth_client: AsyncClient):
     created = (await auth_client.post("/agents", json={"name": "A", "stable_node_id": "n1"})).json()
     resp = await auth_client.get(f"/agents/{created['id']}")
@@ -106,6 +132,19 @@ async def test_agent_not_visible_to_other_user(client: AsyncClient):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as bob:
         await _register_and_login(bob, "bob@example.com", "pw")
         resp = await bob.get(f"/agents/{created['id']}")
+        assert resp.status_code == 404
+
+
+async def test_other_user_cannot_delete_agent(client: AsyncClient):
+    await _register_and_login(client, "alice@example.com", "pw")
+    created = (
+        await client.post("/agents", json={"name": "A", "stable_node_id": "n_delete_iso"})
+    ).json()
+
+    app = create_app(":memory:")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as bob:
+        await _register_and_login(bob, "bob@example.com", "pw")
+        resp = await bob.request("DELETE", f"/agents/{created['id']}")
         assert resp.status_code == 404
 
 
@@ -142,6 +181,18 @@ async def test_revoke_token(auth_client: AsyncClient):
     assert resp.status_code == 200
 
 
+async def test_delete_token(auth_client: AsyncClient):
+    agent = (
+        await auth_client.post("/agents", json={"name": "A", "stable_node_id": "n_delete_tok"})
+    ).json()
+    tok = (await auth_client.post(f"/agents/{agent['id']}/tokens", json={})).json()
+    resp = await auth_client.request("DELETE", f"/agents/{agent['id']}/tokens/{tok['id']}")
+    assert resp.status_code == 200
+    listed = await auth_client.get(f"/agents/{agent['id']}/tokens")
+    ids = [item["id"] for item in listed.json()]
+    assert tok["id"] not in ids
+
+
 async def test_revoke_already_revoked_returns_404(auth_client: AsyncClient):
     agent = (await auth_client.post("/agents", json={"name": "A", "stable_node_id": "n4"})).json()
     tok = (await auth_client.post(f"/agents/{agent['id']}/tokens", json={})).json()
@@ -158,4 +209,18 @@ async def test_token_on_other_users_agent_returns_404(client: AsyncClient):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as bob:
         await _register_and_login(bob, "bob@example.com", "pw")
         resp = await bob.post(f"/agents/{agent['id']}/tokens", json={})
+        assert resp.status_code == 404
+
+
+async def test_other_user_cannot_delete_token(client: AsyncClient):
+    await _register_and_login(client, "alice@example.com", "pw")
+    agent = (
+        await client.post("/agents", json={"name": "A", "stable_node_id": "n_tok_delete_iso"})
+    ).json()
+    tok = (await client.post(f"/agents/{agent['id']}/tokens", json={})).json()
+
+    app = create_app(":memory:")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as bob:
+        await _register_and_login(bob, "bob@example.com", "pw")
+        resp = await bob.request("DELETE", f"/agents/{agent['id']}/tokens/{tok['id']}")
         assert resp.status_code == 404

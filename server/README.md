@@ -58,9 +58,11 @@ See `../docs/server_api_contract.md` for frozen JSON shapes.
 | `GET /agents` | cookie | List own agents |
 | `POST /agents` | cookie | Create agent |
 | `GET /agents/{id}` | cookie | Get agent |
+| `DELETE /agents/{id}` | cookie | Delete agent and all its tokens |
 | `GET /agents/{id}/status` | cookie | Live session status |
 | `POST /agents/{id}/tokens` | cookie | Mint agent token |
 | `GET /agents/{id}/tokens` | cookie | List tokens |
+| `DELETE /agents/{id}/tokens/{tid}` | cookie | Delete token |
 | `POST /agents/{id}/tokens/{tid}/revoke` | cookie | Revoke token |
 | `WS /ws/agent` | Bearer token | Agent streaming connection |
 | `WS /ws/viewer` | cookie | Browser viewer connection |

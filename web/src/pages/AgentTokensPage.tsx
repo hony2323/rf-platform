@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
-import { useAgentTokens, useCreateAgentToken, useRevokeAgentToken } from "../hooks/useAgentTokens";
+import { useAgentTokens, useCreateAgentToken, useDeleteAgentToken } from "../hooks/useAgentTokens";
 import type { TokenCreateResponse } from "../types/api";
 
 function CreateTokenDialog({
@@ -108,7 +108,7 @@ export function AgentTokensPage() {
   const { agentId } = useParams<{ agentId: string }>();
   const [showCreate, setShowCreate] = useState(false);
   const { data: tokens, isLoading, error } = useAgentTokens(agentId!);
-  const { mutate: revoke, isPending: isRevoking, variables: revokingId } = useRevokeAgentToken(agentId!);
+  const { mutate: deleteToken, isPending: isDeleting, variables: deletingId } = useDeleteAgentToken(agentId!);
 
   if (isLoading) {
     return (
@@ -167,11 +167,11 @@ export function AgentTokensPage() {
                   </div>
                   <div className="flex justify-end">
                     <button
-                      onClick={() => revoke(token.id)}
-                      disabled={isRevoking && revokingId === token.id}
+                      onClick={() => deleteToken(token.id)}
+                      disabled={isDeleting && deletingId === token.id}
                       className="text-sm text-red-400 transition-colors hover:text-red-300 disabled:opacity-50"
                     >
-                      {isRevoking && revokingId === token.id ? "Revoking..." : "Revoke"}
+                      {isDeleting && deletingId === token.id ? "Deleting..." : "Delete"}
                     </button>
                   </div>
                 </div>
@@ -197,11 +197,11 @@ export function AgentTokensPage() {
                       </td>
                       <td className="px-4 py-3 text-right text-sm">
                         <button
-                          onClick={() => revoke(token.id)}
-                          disabled={isRevoking && revokingId === token.id}
+                          onClick={() => deleteToken(token.id)}
+                          disabled={isDeleting && deletingId === token.id}
                           className="text-red-400 transition-colors hover:text-red-300 disabled:opacity-50"
                         >
-                          {isRevoking && revokingId === token.id ? "Revoking..." : "Revoke"}
+                          {isDeleting && deletingId === token.id ? "Deleting..." : "Delete"}
                         </button>
                       </td>
                     </tr>

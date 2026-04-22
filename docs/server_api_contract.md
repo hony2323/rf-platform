@@ -108,6 +108,14 @@ Returns `404` if agent does not exist or is not owned by the caller.
 
 ---
 
+### `DELETE /agents/{agent_id}`
+
+Response `204` (no body). Deletes the owned agent and all tokens attached to it.
+
+Returns `404` if agent does not exist or is not owned by the caller.
+
+---
+
 ### `GET /agents/{agent_id}/status`
 
 Returns the live runtime status of an agent. Reads from the in-memory session registry - not SQLite.
@@ -180,6 +188,17 @@ Response `200`:
 ```
 
 Returns `404` if token does not exist, is already revoked, or belongs to a different agent.
+
+---
+
+### `DELETE /agents/{agent_id}/tokens/{token_id}`
+
+Response `200`:
+```json
+{ "id": "uuid", "label": "prod token", "created_at": "2026-01-01T00:00:00" }
+```
+
+Returns `404` if the agent does not exist, is not owned by the caller, or the token does not exist.
 
 ---
 

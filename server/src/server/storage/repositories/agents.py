@@ -32,3 +32,12 @@ async def get_agent_by_id_unscoped(db: AsyncSession, agent_id: str) -> Agent | N
 async def get_agent_by_node_id(db: AsyncSession, stable_node_id: str) -> Agent | None:
     result = await db.execute(select(Agent).where(Agent.stable_node_id == stable_node_id))
     return result.scalar_one_or_none()
+
+
+async def delete_agent(db: AsyncSession, agent_id: str, user_id: str) -> Agent | None:
+    agent = await get_agent_by_id(db, agent_id, user_id)
+    if agent is None:
+        return None
+    await db.delete(agent)
+    await db.commit()
+    return agent

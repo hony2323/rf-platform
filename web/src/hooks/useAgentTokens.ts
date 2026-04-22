@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createAgentToken, getAgentTokens, revokeAgentToken } from "../api/tokens";
+import { createAgentToken, deleteAgentToken, getAgentTokens, revokeAgentToken } from "../api/tokens";
 import type { TokenCreateResponse, TokenResponse } from "../types/api";
 
 export function useAgentTokens(agentId: string) {
@@ -24,7 +24,17 @@ export function useRevokeAgentToken(agentId: string) {
   return useMutation<TokenResponse, Error, string>({
     mutationFn: (tokenId) => revokeAgentToken(agentId, tokenId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["agentTokens", agentId] });
+      void queryClient.invalidateQueries({ queryKey: ["agentTokens", agentId] });
+    },
+  });
+}
+
+export function useDeleteAgentToken(agentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<TokenResponse, Error, string>({
+    mutationFn: (tokenId) => deleteAgentToken(agentId, tokenId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["agentTokens", agentId] });
     },
   });
 }
