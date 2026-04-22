@@ -277,7 +277,9 @@ def _make_runner(
         repo.processors.append(p)
         return p
 
-    def make_session(c: AgentConfig, transport: Any, codec: Any) -> FakeSession:
+    def make_session(
+        c: AgentConfig, transport: Any, codec: Any, on_connected: Any = None
+    ) -> FakeSession:
         s = FakeSession(raises=session_raises)
         repo.sessions.append(s)
         return s

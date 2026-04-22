@@ -83,13 +83,19 @@ def make_standard_factories(
             metrics=shared_metrics,
         )
 
-    def make_session(cfg: AgentConfig, t: Transport, c: ProtocolCodec) -> Session:
+    def make_session(
+        cfg: AgentConfig,
+        t: Transport,
+        c: ProtocolCodec,
+        on_connected: Callable[[], None] | None = None,
+    ) -> Session:
         return Session(
             config=cfg,
             transport=t,
             codec=c,
             timings=pipeline_timing,
             metrics=shared_metrics,
+            on_connected=on_connected,
         )
 
     def make_telemetry(
