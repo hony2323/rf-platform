@@ -4,6 +4,7 @@ import { LoginPage } from "../pages/LoginPage";
 import { AgentsPage } from "../pages/AgentsPage";
 import { AgentTokensPage } from "../pages/AgentTokensPage";
 import { AgentLivePage } from "../pages/AgentLivePage";
+import { AgentConnectGuidePage } from "../pages/AgentConnectGuidePage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 
 const router = createBrowserRouter([
@@ -36,6 +37,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <AgentTokensPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/agents/:agentId/connect",
+    element: (
+      <ProtectedRoute>
+        <AgentConnectGuidePage />
       </ProtectedRoute>
     ),
   },

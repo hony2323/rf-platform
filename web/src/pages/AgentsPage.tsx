@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createAgent } from "../api/agents";
 import { useAgents } from "../hooks/useAgents";
@@ -11,11 +11,13 @@ function CreateAgentDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [nodeId, setNodeId] = useState("");
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { mutate, isPending, error } = useMutation({
     mutationFn: () => createAgent({ name: name.trim(), stable_node_id: nodeId.trim() }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["agents"] });
       onClose();
+      navigate(`/agents/${created.id}/connect`);
     },
   });
 
@@ -97,6 +99,12 @@ function AgentRow({ agent }: { agent: AgentResponse }) {
           Live
         </Link>
         <Link
+          to={`/agents/${agent.id}/connect`}
+          className="text-gray-400 hover:text-gray-300 transition-colors"
+        >
+          Connect
+        </Link>
+        <Link
           to={`/agents/${agent.id}/tokens`}
           className="text-gray-400 hover:text-gray-300 transition-colors"
         >
@@ -127,6 +135,12 @@ function AgentCard({ agent }: { agent: AgentResponse }) {
           className="text-blue-400 hover:text-blue-300 transition-colors"
         >
           Live
+        </Link>
+        <Link
+          to={`/agents/${agent.id}/connect`}
+          className="text-gray-400 hover:text-gray-300 transition-colors"
+        >
+          Connect
         </Link>
         <Link
           to={`/agents/${agent.id}/tokens`}
