@@ -2,10 +2,11 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAgent } from "../hooks/useAgents";
 
-const SIGMF_DATA_PATH = "/sample/LTE_uplink_847MHz_2022-01-30_30720ksps.sigmf-data";
-const SIGMF_META_PATH = "/sample/LTE_uplink_847MHz_2022-01-30_30720ksps.sigmf-meta";
-const SIGMF_DATA_FILENAME = "LTE_uplink_847MHz_2022-01-30_30720ksps.sigmf-data";
-const SIGMF_META_FILENAME = "LTE_uplink_847MHz_2022-01-30_30720ksps.sigmf-meta";
+const WAV_FILENAME = "5829250000Hz_MWlamp_1250k.wav";
+const WAV_PATH = `/sample/${WAV_FILENAME}`;
+const WAV_CENTER_FREQ_HZ = 5_829_250_000;
+const WAV_FPS = 10;
+const WAV_FFT_SIZE = 1024;
 
 type Mode = "file" | "sdr";
 
@@ -90,8 +91,10 @@ export function AgentConnectGuidePage() {
     `  --server ${serverUrl} \\`,
     `  --node-id ${agent.stable_node_id} \\`,
     "  --token <PASTE_TOKEN_HERE> \\",
-    `  --file ./${SIGMF_META_FILENAME} \\`,
-    "  --fps 15",
+    `  --file ./${WAV_FILENAME} \\`,
+    `  --freq ${WAV_CENTER_FREQ_HZ} \\`,
+    `  --fft-size ${WAV_FFT_SIZE} \\`,
+    `  --fps ${WAV_FPS}`,
   ].join("\n");
 
   return (
@@ -166,29 +169,20 @@ export function AgentConnectGuidePage() {
         {mode === "file" ? (
           <>
             <p>
-              Download this sample SigMF recording (LTE uplink at 847 MHz, 30.72
-              Msps). Save both files into the same directory.
+              Download this sample WAV recording (microwave lamp at{" "}
+              {(WAV_CENTER_FREQ_HZ / 1e9).toFixed(3)} GHz, 1.25 Msps). Save it to
+              a working directory.
             </p>
             <ul className="list-inside list-disc space-y-1">
               <li>
                 <a
-                  href={SIGMF_DATA_PATH}
-                  download={SIGMF_DATA_FILENAME}
+                  href={WAV_PATH}
+                  download={WAV_FILENAME}
                   className="break-all font-mono text-xs text-blue-400 underline hover:text-blue-300 sm:text-sm"
                 >
-                  {SIGMF_DATA_FILENAME}
+                  {WAV_FILENAME}
                 </a>{" "}
                 <span className="text-xs text-gray-500">(IQ samples)</span>
-              </li>
-              <li>
-                <a
-                  href={SIGMF_META_PATH}
-                  download={SIGMF_META_FILENAME}
-                  className="break-all font-mono text-xs text-blue-400 underline hover:text-blue-300 sm:text-sm"
-                >
-                  {SIGMF_META_FILENAME}
-                </a>{" "}
-                <span className="text-xs text-gray-500">(metadata, required)</span>
               </li>
             </ul>
             <p>
@@ -200,8 +194,8 @@ export function AgentConnectGuidePage() {
             </p>
             <CodeBlock>{fileCommand}</CodeBlock>
             <p className="text-xs text-gray-500">
-              Centre frequency and sample rate are read automatically from the
-              <code className="mx-1 text-gray-300">.sigmf-meta</code> file.
+              WAV files have no centre-frequency metadata, so{" "}
+              <code className="mx-1 text-gray-300">--freq</code> is required.
             </p>
           </>
         ) : (
