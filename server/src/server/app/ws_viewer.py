@@ -134,7 +134,8 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
                 return
             if recv_task in done:
                 send_task.cancel()
-                await asyncio.gather(send_task, return_exceptions=True)
+                close_task.cancel()
+                await asyncio.gather(send_task, close_task, return_exceptions=True)
                 break
             text = send_task.result()
             try:

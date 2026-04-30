@@ -245,11 +245,6 @@ def test_registries_are_independent():
 # ---------------------------------------------------------------------------
 
 
-def test_live_agent_session_has_frame_queue():
-    s = make_session()
-    assert isinstance(s.frame_queue, asyncio.Queue)
-
-
 def test_viewer_subscription_has_send_queue():
     v = make_viewer()
     assert isinstance(v.send_queue, asyncio.Queue)

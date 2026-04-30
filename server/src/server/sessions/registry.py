@@ -123,4 +123,6 @@ class SessionRegistry:
         to_remove = [sid for sid, v in self._viewers.items() if v.session_id == session_id]
         for sid in to_remove:
             viewer = self._viewers.pop(sid)
+            while not viewer.send_queue.empty():
+                viewer.send_queue.get_nowait()
             viewer.closed.set()

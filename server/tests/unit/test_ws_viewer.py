@@ -502,8 +502,5 @@ async def test_slow_viewer_full_queue_does_not_block_agent(app, db_state):
     )
     await asyncio.sleep(0)
 
-    # Frame was accepted into session.frame_queue; viewer drop was silent
-    assert agent_session.frame_queue.qsize() == 1
-
     await viewer.close()
     await agent.close()

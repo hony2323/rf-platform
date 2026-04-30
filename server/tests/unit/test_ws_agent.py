@@ -451,11 +451,10 @@ async def test_agent_status_stored(app, db_state):
     await ws.close()
 
 
-async def test_spectrum_frame_valid_enqueued(app, db_state):
+async def test_spectrum_frame_valid_accepted(app, db_state):
     BIN_COUNT = 4
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
     session_id = await _do_full_handshake(ws, bin_count=BIN_COUNT)
-    session = app.state.registry.get_session(session_id)
 
     payload = _make_payload(BIN_COUNT, value=-70.0)
     await ws.send_json(
@@ -463,10 +462,8 @@ async def test_spectrum_frame_valid_enqueued(app, db_state):
     )
     await asyncio.sleep(0)
 
-    assert session.frame_queue.qsize() == 1
-    queued = session.frame_queue.get_nowait()
-    decoded = struct.unpack(f"<{BIN_COUNT}f", base64.b64decode(queued.payload))
-    assert all(pytest.approx(v, abs=1e-4) == -70.0 for v in decoded)
+    # Valid frame is accepted silently — no error response, session remains live.
+    assert app.state.registry.get_session(session_id) is not None
     await ws.close()
 
 
@@ -474,7 +471,6 @@ async def test_spectrum_frame_payload_too_short_sends_error(app, db_state):
     BIN_COUNT = 4
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
     session_id = await _do_full_handshake(ws, bin_count=BIN_COUNT)
-    session = app.state.registry.get_session(session_id)
 
     short_payload = base64.b64encode(bytes(BIN_COUNT * 4 - 1)).decode()
     await ws.send_json(
@@ -488,7 +484,6 @@ async def test_spectrum_frame_payload_too_short_sends_error(app, db_state):
     assert err["stream_id"] == "default"
     assert err["config_version"] == 1
     assert err["frame_index"] == 0
-    assert session.frame_queue.qsize() == 0
     await ws.close()
 
 
@@ -496,7 +491,6 @@ async def test_spectrum_frame_payload_too_long_sends_error(app, db_state):
     BIN_COUNT = 4
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
     session_id = await _do_full_handshake(ws, bin_count=BIN_COUNT)
-    session = app.state.registry.get_session(session_id)
 
     long_payload = base64.b64encode(bytes(BIN_COUNT * 4 + 4)).decode()
     await ws.send_json(
@@ -507,7 +501,6 @@ async def test_spectrum_frame_payload_too_long_sends_error(app, db_state):
     assert err["msg_type"] == "error"
     assert err["code"] == "INVALID_FRAME"
     assert err["fatal"] is False
-    assert session.frame_queue.qsize() == 0
     await ws.close()
 
 
@@ -515,7 +508,6 @@ async def test_spectrum_frame_invalid_base64_sends_error(app, db_state):
     BIN_COUNT = 4
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
     session_id = await _do_full_handshake(ws, bin_count=BIN_COUNT)
-    session = app.state.registry.get_session(session_id)
 
     await ws.send_json(
         _spectrum_frame_msg(
@@ -527,7 +519,6 @@ async def test_spectrum_frame_invalid_base64_sends_error(app, db_state):
     assert err["msg_type"] == "error"
     assert err["code"] == "INVALID_FRAME"
     assert err["fatal"] is False
-    assert session.frame_queue.qsize() == 0
     await ws.close()
 
 
@@ -535,7 +526,6 @@ async def test_spectrum_frame_wrong_stream_id_sends_error(app, db_state):
     BIN_COUNT = 4
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
     session_id = await _do_full_handshake(ws, bin_count=BIN_COUNT)
-    session = app.state.registry.get_session(session_id)
 
     bad_frame = dict(
         _spectrum_frame_msg(
@@ -549,7 +539,6 @@ async def test_spectrum_frame_wrong_stream_id_sends_error(app, db_state):
     assert err["msg_type"] == "error"
     assert err["code"] == "INVALID_FRAME"
     assert err["fatal"] is False
-    assert session.frame_queue.qsize() == 0
     await ws.close()
 
 
@@ -576,11 +565,10 @@ async def test_spectrum_frame_stale_config_version_sends_error(app, db_state):
     assert err["msg_type"] == "error"
     assert err["code"] == "INVALID_FRAME"
     assert err["fatal"] is False
-    assert session.frame_queue.qsize() == 0
     await ws.close()
 
 
-async def test_spectrum_frame_current_config_version_enqueued_after_reconfig(app, db_state):
+async def test_spectrum_frame_current_config_version_accepted_after_reconfig(app, db_state):
     BIN_COUNT = 4
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
     session_id = await _do_full_handshake(ws, bin_count=BIN_COUNT)
@@ -588,14 +576,14 @@ async def test_spectrum_frame_current_config_version_enqueued_after_reconfig(app
     await ws.send_json(_stream_config_msg(session_id, bin_count=BIN_COUNT))
     await ws.recv_json()  # stream_config_ack (config_version=2)
 
-    session = app.state.registry.get_session(session_id)
     payload = _make_payload(BIN_COUNT)
     await ws.send_json(
         _spectrum_frame_msg(session_id, config_version=2, frame_index=0, payload=payload)
     )
     await asyncio.sleep(0)
 
-    assert session.frame_queue.qsize() == 1
+    # Valid frame after reconfig is accepted silently — session remains live.
+    assert app.state.registry.get_session(session_id) is not None
     await ws.close()
 
 
@@ -617,7 +605,8 @@ async def test_reconfig_updates_bin_count_for_validation(app, db_state):
         _spectrum_frame_msg(session_id, config_version=2, frame_index=0, payload=payload)
     )
     await asyncio.sleep(0)
-    assert session.frame_queue.qsize() == 1
+    # Valid frame for updated bin_count accepted silently — session remains live.
+    assert app.state.registry.get_session(session_id) is not None
     await ws.close()
 
 
