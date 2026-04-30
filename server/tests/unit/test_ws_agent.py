@@ -611,6 +611,40 @@ async def test_reconfig_updates_bin_count_for_validation(app, db_state):
 
 
 # ---------------------------------------------------------------------------
+# Leak regression — frame_queue removed
+# ---------------------------------------------------------------------------
+
+
+async def test_session_has_no_frame_queue_attribute(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_full_handshake(ws)
+    session = app.state.registry.get_session(session_id)
+    assert not hasattr(session, "frame_queue"), (
+        "frame_queue was re-introduced on LiveAgentSession — it is an unbounded memory leak"
+    )
+    await ws.close()
+
+
+async def test_many_frames_accepted_without_accumulating_on_session(app, db_state):
+    BIN_COUNT = 4
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_full_handshake(ws, bin_count=BIN_COUNT)
+    session = app.state.registry.get_session(session_id)
+
+    for i in range(20):
+        await ws.send_json(
+            _spectrum_frame_msg(
+                session_id, config_version=1, frame_index=i, payload=_make_payload(BIN_COUNT)
+            )
+        )
+    await asyncio.sleep(0)
+
+    assert app.state.registry.get_session(session_id) is not None
+    assert not hasattr(session, "frame_queue")
+    await ws.close()
+
+
+# ---------------------------------------------------------------------------
 # Identity / session consistency validation
 # ---------------------------------------------------------------------------
 

@@ -476,6 +476,57 @@ async def test_viewer_closes_when_session_replaced(app, db_state):
     await agent2.close()
 
 
+# ---------------------------------------------------------------------------
+# Leak regression — close_task cancellation and registry cleanup
+# ---------------------------------------------------------------------------
+
+
+async def test_normal_viewer_disconnect_removes_from_registry(app, db_state):
+    agent = _agent_ws(app)
+    await _do_agent_handshake(agent)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # stream_config
+
+    agent_session = app.state.registry.get_session_by_agent(db_state["agent_id"])
+    subs = app.state.registry.get_viewers_for_session(agent_session.session_id)
+    assert len(subs) == 1
+    subscription_id = subs[0].subscription_id
+
+    await viewer.close()
+    await asyncio.sleep(0)
+
+    assert app.state.registry.get_viewer(subscription_id) is None
+    await agent.close()
+
+
+async def test_viewer_disconnect_leaves_no_dangling_tasks(app, db_state):
+    agent = _agent_ws(app)
+    await _do_agent_handshake(agent)
+
+    # Baseline: test task + agent handler task
+    baseline = len(asyncio.all_tasks())
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # stream_config
+
+    # Viewer drain loop has spawned recv_task and close_task
+    await viewer.close()
+    # Two yields ensure cancelled task callbacks are processed
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    # All tasks spawned by the viewer drain loop must be cancelled and collected
+    assert len(asyncio.all_tasks()) <= baseline
+    await agent.close()
+
+
 async def test_slow_viewer_full_queue_does_not_block_agent(app, db_state):
     BIN_COUNT = 4
     agent = _agent_ws(app)

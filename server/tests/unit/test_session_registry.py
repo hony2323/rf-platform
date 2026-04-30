@@ -369,3 +369,80 @@ def test_evicting_old_session_on_add_also_removes_its_viewers():
     reg.add_session(make_session("ses_2", agent_id="agent_x"))
     assert reg.get_viewer("sub_1") is None
     assert reg.get_viewers_for_session("ses_1") == []
+
+
+# ---------------------------------------------------------------------------
+# Eviction guarantees — queue drain and closed signal (leak-fix regression)
+# ---------------------------------------------------------------------------
+
+
+def test_remove_session_drains_viewer_queue_and_signals_closed():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1"))
+    v = make_viewer("sub_1", session_id="ses_1")
+    for i in range(5):
+        v.send_queue.put_nowait(f"large_payload_{i}" * 100)
+    reg.add_viewer(v)
+
+    reg.remove_session("ses_1")
+
+    assert v.closed.is_set()
+    assert v.send_queue.empty()
+    assert reg.get_viewer("sub_1") is None
+
+
+def test_evict_on_agent_reconnect_drains_viewer_queue_and_signals_closed():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1", agent_id="agent_x"))
+    v = make_viewer("sub_1", session_id="ses_1")
+    for i in range(5):
+        v.send_queue.put_nowait(f"payload_{i}" * 100)
+    reg.add_viewer(v)
+
+    # New session for same agent evicts ses_1 and its viewer
+    reg.add_session(make_session("ses_2", agent_id="agent_x"))
+
+    assert v.closed.is_set()
+    assert v.send_queue.empty()
+    assert reg.get_viewer("sub_1") is None
+
+
+# ---------------------------------------------------------------------------
+# close_all — shutdown teardown
+# ---------------------------------------------------------------------------
+
+
+def test_close_all_drains_all_viewer_queues_and_signals_closed():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1", agent_id="a1"))
+    reg.add_session(make_session("ses_2", agent_id="a2"))
+    v1 = make_viewer("sub_1", session_id="ses_1")
+    v2 = make_viewer("sub_2", session_id="ses_2")
+    for _ in range(3):
+        v1.send_queue.put_nowait("data")
+        v2.send_queue.put_nowait("data")
+    reg.add_viewer(v1)
+    reg.add_viewer(v2)
+
+    reg.close_all()
+
+    assert v1.closed.is_set()
+    assert v2.closed.is_set()
+    assert v1.send_queue.empty()
+    assert v2.send_queue.empty()
+    assert reg.all_viewers() == []
+    assert reg.all_sessions() == []
+
+
+def test_close_all_on_empty_registry_is_noop():
+    reg = SessionRegistry()
+    reg.close_all()
+    assert reg.all_sessions() == []
+    assert reg.all_viewers() == []
+
+
+def test_close_all_clears_agent_index():
+    reg = SessionRegistry()
+    reg.add_session(make_session("ses_1", agent_id="agent_x"))
+    reg.close_all()
+    assert reg.get_session_by_agent("agent_x") is None

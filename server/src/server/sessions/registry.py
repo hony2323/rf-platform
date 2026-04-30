@@ -115,6 +115,20 @@ class SessionRegistry:
     def all_viewers(self) -> list[ViewerSubscription]:
         return list(self._viewers.values())
 
+    def close_all(self) -> None:
+        """Drain all viewer queues, signal close, then clear all registry state.
+
+        Called during server shutdown so viewer drain loops exit cleanly and
+        no asyncio.Queue items linger in memory.
+        """
+        for viewer in self._viewers.values():
+            while not viewer.send_queue.empty():
+                viewer.send_queue.get_nowait()
+            viewer.closed.set()
+        self._viewers.clear()
+        self._sessions.clear()
+        self._agent_index.clear()
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
