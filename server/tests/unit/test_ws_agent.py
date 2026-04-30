@@ -542,6 +542,36 @@ async def test_spectrum_frame_wrong_stream_id_sends_error(app, db_state):
     await ws.close()
 
 
+async def test_spectrum_frame_oversized_viewer_header_sends_recoverable_error(app, db_state):
+    BIN_COUNT = 4
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_full_handshake(ws, bin_count=BIN_COUNT)
+
+    bad_frame = dict(
+        _spectrum_frame_msg(
+            session_id, config_version=1, frame_index=0, payload=_make_payload(BIN_COUNT)
+        ),
+        timestamp_utc="2026-01-01T00:00:01.000Z" + ("x" * 70000),
+    )
+    await ws.send_json(bad_frame)
+    err = await ws.recv_json()
+
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is False
+    assert "header length" in err["message"]
+    assert app.state.registry.get_session(session_id) is not None
+
+    await ws.send_json(
+        _spectrum_frame_msg(
+            session_id, config_version=1, frame_index=1, payload=_make_payload(BIN_COUNT)
+        )
+    )
+    await asyncio.sleep(0)
+    assert app.state.registry.get_session(session_id) is not None
+    await ws.close()
+
+
 async def test_spectrum_frame_stale_config_version_sends_error(app, db_state):
     BIN_COUNT = 4
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
