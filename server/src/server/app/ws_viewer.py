@@ -137,9 +137,12 @@ async def ws_viewer(websocket: WebSocket, db: AsyncSession = Depends(get_db)) ->
                 close_task.cancel()
                 await asyncio.gather(send_task, close_task, return_exceptions=True)
                 break
-            text = send_task.result()
+            item = send_task.result()
             try:
-                await websocket.send_text(text)
+                if isinstance(item, bytes):
+                    await websocket.send_bytes(item)
+                else:
+                    await websocket.send_text(item)
             except Exception:
                 recv_task.cancel()
                 close_task.cancel()

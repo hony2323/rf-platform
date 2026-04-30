@@ -48,7 +48,7 @@ export interface ViewerSpectrumFrameMessage {
   config_version: number;
   frame_index: number;
   timestamp_utc: string;
-  data: { payload: string };
+  data: { payload: Float32Array };
 }
 
 export interface ViewerErrorMessage {
