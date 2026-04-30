@@ -22,9 +22,6 @@ class LiveAgentSession:
     last_stream_config: dict | None = None
     last_config_version: int | None = None
 
-    # Outbound frame queue — available for future buffering / replay
-    frame_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
-
 
 _VIEWER_QUEUE_SIZE = 64
 
