@@ -289,7 +289,8 @@ class AgentRunner:
             )
             await self._sleep(sleep_duration)
 
-            delay = min(
-                delay * reconnect.backoff_factor,
-                reconnect.max_delay_s,
-            )
+            if not result.connected:
+                delay = min(
+                    delay * reconnect.backoff_factor,
+                    reconnect.max_delay_s,
+                )
