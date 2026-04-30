@@ -288,7 +288,6 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                         )
                     )
                     continue
-                await session.frame_queue.put(msg)
                 outbound = encode_viewer_spectrum_frame(str(agent.id), session_id, msg)
                 for viewer in registry.get_viewers_for_session(session_id):
                     try:

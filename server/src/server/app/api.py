@@ -23,6 +23,7 @@ def create_app(db_path: str | None = None) -> FastAPI:
         await init_db(_db_path)
         app.state.registry = SessionRegistry()
         yield
+        app.state.registry.close_all()
 
     app = FastAPI(title="RF Platform", version="0.3.0", lifespan=lifespan)
     app.state.settings = settings  # available immediately, before lifespan runs
