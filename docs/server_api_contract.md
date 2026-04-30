@@ -1,7 +1,9 @@
-# Server API Contract - v0.3 (frozen)
+# Server API Contract - v0.4
 
-This document defines the frozen JSON shapes for the RF Platform server API.
+This document defines the JSON shapes for the RF Platform server API.
 The web app consumes these shapes directly. Do not change them without a protocol version bump.
+
+**Changes from v0.3:** Viewer `spectrum_frame` is now a binary WebSocket message instead of a JSON text message — see the viewer section below. All other shapes are unchanged. The agent-side wire protocol (`protocol/agent_server_contract_v0_3.md`) is untouched.
 
 ---
 
@@ -278,7 +280,19 @@ Also sent whenever the agent sends a new `stream_config` (reconfig).
 
 ### spectrum_frame (server -> client)
 
-Sent for every valid frame received from the agent. Payload is base64-encoded float32 LE, `bin_count x 4` bytes.
+Sent for every valid frame received from the agent. Delivered as a **binary WebSocket message** (not JSON text).
+
+Layout:
+
+```
+[uint16 big-endian header_len][header_json_utf8 padded][raw float32 LE payload]
+```
+
+- `header_len`: length of the header bytes that follow (includes any trailing space padding).
+- `header_json_utf8`: a JSON object encoded as UTF-8. The header is right-padded with ASCII spaces so that the payload starts at a 4-byte offset, letting browsers construct a `Float32Array` view directly over the buffer with no copy. The padding bytes are inside `header_len` and are valid trailing whitespace under JSON parsing.
+- Payload: `bin_count × 4` raw bytes of float32 little-endian samples.
+
+Header object:
 
 ```json
 {
@@ -289,13 +303,30 @@ Sent for every valid frame received from the agent. Payload is base64-encoded fl
   "config_version": 1,
   "frame_index": 0,
   "timestamp_utc": "2026-01-01T00:00:01.000Z",
-  "data": {
-    "payload": "<base64 float32 LE>"
-  }
+  "bin_count": 1024
 }
 ```
 
 `frame_index` resets to 0 on each new `config_version`. Gaps indicate dropped frames.
+
+**Browser parsing sketch:**
+
+```ts
+ws.binaryType = "arraybuffer";
+ws.onmessage = (e) => {
+  if (e.data instanceof ArrayBuffer) {
+    const view = new DataView(e.data);
+    const headerLen = view.getUint16(0, false);
+    const header = JSON.parse(
+      new TextDecoder().decode(new Uint8Array(e.data, 2, headerLen)),
+    );
+    const payload = new Float32Array(e.data, 2 + headerLen);
+    // ...
+  }
+};
+```
+
+All other server→client messages (`subscribe_ack`, `stream_config`, `error`) remain JSON text frames.
 
 ### error (server -> client)
 

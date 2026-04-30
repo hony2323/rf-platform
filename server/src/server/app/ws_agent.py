@@ -24,7 +24,7 @@ from server.protocol.codec import (
     encode_connect_ack,
     encode_error,
     encode_stream_config_ack,
-    encode_viewer_spectrum_frame,
+    encode_viewer_spectrum_frame_binary,
     encode_viewer_stream_config,
 )
 from server.sessions.models import LiveAgentSession
@@ -288,7 +288,9 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                         )
                     )
                     continue
-                outbound = encode_viewer_spectrum_frame(str(agent.id), session_id, msg)
+                outbound = encode_viewer_spectrum_frame_binary(
+                    str(agent.id), session_id, msg, payload_bytes
+                )
                 for viewer in registry.get_viewers_for_session(session_id):
                     try:
                         viewer.send_queue.put_nowait(outbound)

@@ -1,8 +1,8 @@
 # Web — MVP Status
 
-**Date:** 2026-04-20  
-**Plan:** `docs/web_mvp_claude_plan.md`  
-**Protocol version:** 0.3 (frozen)
+**Date:** 2026-04-30
+**Plan:** `docs/web_mvp_claude_plan.md`
+**Viewer contract version:** 0.4 — viewer `spectrum_frame` is consumed as a binary WebSocket message (`useViewerStream` sets `binaryType = "arraybuffer"`, parses a uint16 header_len + JSON header + raw float32 LE payload via `Float32Array` view).
 
 This document describes what is implemented in the web frontend, what is stubbed or hollow, and what is missing before the web client can be considered production-ready for MVP.
 

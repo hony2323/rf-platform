@@ -6,6 +6,37 @@ import type {
   ViewerStreamConfigMessage,
 } from "../types/viewer";
 
+type ViewerControlMessage = Exclude<ViewerInboundMessage, ViewerSpectrumFrameMessage>;
+
+function parseBinarySpectrumFrame(buffer: ArrayBuffer): ViewerSpectrumFrameMessage | null {
+  if (buffer.byteLength < 2) return null;
+  const view = new DataView(buffer);
+  const headerLen = view.getUint16(0, false);
+  const headerEnd = 2 + headerLen;
+  if (headerEnd > buffer.byteLength) return null;
+  let header: Record<string, unknown>;
+  try {
+    header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 2, headerLen)));
+  } catch {
+    return null;
+  }
+  if (header.msg_type !== "spectrum_frame") return null;
+  const payloadOffset = headerEnd;
+  const payloadBytes = buffer.byteLength - payloadOffset;
+  if (payloadBytes % 4 !== 0) return null;
+  const payload = new Float32Array(buffer, payloadOffset, payloadBytes / 4);
+  return {
+    msg_type: "spectrum_frame",
+    agent_id: String(header.agent_id ?? ""),
+    session_id: String(header.session_id ?? ""),
+    stream_id: String(header.stream_id ?? ""),
+    config_version: Number(header.config_version ?? 0),
+    frame_index: Number(header.frame_index ?? 0),
+    timestamp_utc: String(header.timestamp_utc ?? ""),
+    data: { payload },
+  };
+}
+
 export type ViewerConnectionState =
   | "idle"
   | "connecting"
@@ -45,6 +76,7 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
     if (wsRef.current) return;
 
     const ws = new WebSocket(viewerWsUrl());
+    ws.binaryType = "arraybuffer";
     wsRef.current = ws;
     retryEnabledRef.current = false;
     gotServerErrorRef.current = false;
@@ -55,11 +87,18 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
       ws.send(JSON.stringify({ msg_type: "subscribe", agent_id: agentId }));
     };
 
-    ws.onmessage = (event: MessageEvent<string>) => {
+    ws.onmessage = (event: MessageEvent<string | ArrayBuffer>) => {
       if (wsRef.current !== ws) return;
-      let msg: ViewerInboundMessage;
+
+      if (event.data instanceof ArrayBuffer) {
+        const frame = parseBinarySpectrumFrame(event.data);
+        if (frame) frameCallbacks.current.forEach((cb) => cb(frame));
+        return;
+      }
+
+      let msg: ViewerControlMessage;
       try {
-        msg = JSON.parse(event.data) as ViewerInboundMessage;
+        msg = JSON.parse(event.data) as ViewerControlMessage;
       } catch {
         return;
       }
@@ -71,8 +110,6 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
       } else if (msg.msg_type === "stream_config") {
         configRef.current = msg;
         setConfig(msg);
-      } else if (msg.msg_type === "spectrum_frame") {
-        frameCallbacks.current.forEach((cb) => cb(msg));
       } else if (msg.msg_type === "error") {
         gotServerErrorRef.current = true;
         setLastError(msg.message);

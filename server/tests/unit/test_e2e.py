@@ -108,6 +108,19 @@ class _WS:
             if event["type"] == "websocket.close":
                 raise WebSocketDisconnect(event.get("code", 1000))
 
+    async def recv_bytes(self, timeout: float = 2.0) -> bytes:
+        while True:
+            event = await asyncio.wait_for(self._s2c.get(), timeout=timeout)
+            if event["type"] == "websocket.send":
+                data = event.get("bytes")
+                if data is None:
+                    raise AssertionError(
+                        f"expected binary frame, got text: {event.get('text')!r}"
+                    )
+                return data
+            if event["type"] == "websocket.close":
+                raise WebSocketDisconnect(event.get("code", 1000))
+
     async def recv_json(self, timeout: float = 2.0) -> Any:
         return json.loads(await self.recv_text(timeout))
 
@@ -301,13 +314,16 @@ async def test_full_vertical_slice(app, db_state):
             _spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=payload)
         )
 
-        frame = await viewer.recv_json()
-        assert frame["msg_type"] == "spectrum_frame"
-        assert frame["agent_id"] == db_state["agent_id"]
-        assert frame["frame_index"] == 0
-        assert frame["config_version"] == 1
-        decoded = struct.unpack(f"<{BIN_COUNT}f", base64.b64decode(frame["data"]["payload"]))
-        assert all(pytest.approx(v, abs=1e-4) == FRAME_VALUE for v in decoded)
+        frame_bytes = await viewer.recv_bytes()
+        header_len = struct.unpack(">H", frame_bytes[:2])[0]
+        header = json.loads(frame_bytes[2 : 2 + header_len])
+        floats = struct.unpack(f"<{BIN_COUNT}f", frame_bytes[2 + header_len :])
+        assert header["msg_type"] == "spectrum_frame"
+        assert header["agent_id"] == db_state["agent_id"]
+        assert header["frame_index"] == 0
+        assert header["config_version"] == 1
+        assert header["bin_count"] == BIN_COUNT
+        assert all(pytest.approx(v, abs=1e-4) == FRAME_VALUE for v in floats)
 
         # 5. Agent disconnects — viewer gets AGENT_OFFLINE
         await agent.close()

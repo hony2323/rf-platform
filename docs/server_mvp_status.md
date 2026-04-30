@@ -1,7 +1,8 @@
 # Server — MVP Status
 
-**Date:** 2026-04-18
-**Protocol version:** 0.3 (frozen)
+**Date:** 2026-04-30
+**Agent protocol version:** 0.3 (frozen — `protocol/agent_server_contract_v0_3.md`)
+**Viewer contract version:** 0.4 (`docs/server_api_contract.md`) — viewer `spectrum_frame` is now a binary WS message; agent contract unchanged.
 **Plan reference:** `docs/server_mvp_sqlite_plan.md`
 
 This document tracks which implementation phases are done, in-progress, or pending.

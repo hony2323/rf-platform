@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import struct
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -213,19 +214,33 @@ def encode_viewer_stream_config(agent_id: str, session_id: str, config: dict) ->
     )
 
 
-def encode_viewer_spectrum_frame(agent_id: str, session_id: str, msg: SpectrumFrameMsg) -> str:
-    return json.dumps(
-        {
-            "msg_type": "spectrum_frame",
-            "agent_id": agent_id,
-            "session_id": session_id,
-            "stream_id": msg.stream_id,
-            "config_version": msg.config_version,
-            "frame_index": msg.frame_index,
-            "timestamp_utc": msg.timestamp_utc,
-            "data": {"payload": msg.payload},
-        }
-    )
+def encode_viewer_spectrum_frame_binary(
+    agent_id: str,
+    session_id: str,
+    msg: SpectrumFrameMsg,
+    payload_bytes: bytes,
+) -> bytes:
+    """Encode a spectrum_frame as a binary WebSocket message for viewers.
+
+    Layout: [uint16_be header_len][header_json_utf8 padded][raw float32 LE payload]
+
+    Header is padded with spaces so the payload starts on a 4-byte boundary,
+    letting browsers construct a Float32Array view without copying.
+    """
+    header = {
+        "msg_type": "spectrum_frame",
+        "agent_id": agent_id,
+        "session_id": session_id,
+        "stream_id": msg.stream_id,
+        "config_version": msg.config_version,
+        "frame_index": msg.frame_index,
+        "timestamp_utc": msg.timestamp_utc,
+        "bin_count": len(payload_bytes) // 4,
+    }
+    header_bytes = json.dumps(header).encode("utf-8")
+    pad = (-(2 + len(header_bytes))) % 4
+    header_bytes += b" " * pad
+    return struct.pack(">H", len(header_bytes)) + header_bytes + payload_bytes
 
 
 def encode_viewer_error(code: str, message: str) -> str:

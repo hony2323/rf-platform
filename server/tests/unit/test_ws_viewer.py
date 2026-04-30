@@ -100,6 +100,19 @@ class _WS:
             if event["type"] == "websocket.close":
                 raise WebSocketDisconnect(event.get("code", 1000))
 
+    async def recv_bytes(self, timeout: float = 2.0) -> bytes:
+        while True:
+            event = await asyncio.wait_for(self._s2c.get(), timeout=timeout)
+            if event["type"] == "websocket.send":
+                data = event.get("bytes")
+                if data is None:
+                    raise AssertionError(
+                        f"expected binary frame, got text: {event.get('text')!r}"
+                    )
+                return data
+            if event["type"] == "websocket.close":
+                raise WebSocketDisconnect(event.get("code", 1000))
+
     async def recv_json(self, timeout: float = 2.0) -> Any:
         return json.loads(await self.recv_text(timeout))
 
@@ -207,6 +220,16 @@ def _make_payload(bin_count: int, value: float = -70.0) -> str:
     return base64.b64encode(struct.pack(f"<{bin_count}f", *[value] * bin_count)).decode()
 
 
+def _parse_viewer_binary_frame(data: bytes) -> tuple[dict, tuple[float, ...]]:
+    """Decode a viewer-side binary spectrum_frame into (header_dict, payload_floats)."""
+    header_len = struct.unpack(">H", data[:2])[0]
+    header = json.loads(data[2 : 2 + header_len])
+    payload_bytes = data[2 + header_len :]
+    bin_count = len(payload_bytes) // 4
+    floats = struct.unpack(f"<{bin_count}f", payload_bytes)
+    return header, floats
+
+
 def _spectrum_frame_msg(
     session_id: str, config_version: int, frame_index: int, payload: str
 ) -> dict:
@@ -295,14 +318,14 @@ async def test_viewer_receives_fanned_out_frame(app, db_state):
         _spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=payload)
     )
 
-    frame = await viewer.recv_json()
-    assert frame["msg_type"] == "spectrum_frame"
-    assert frame["agent_id"] == db_state["agent_id"]
-    assert frame["frame_index"] == 0
-    assert frame["config_version"] == 1
-    # Assert on decoded float values, not raw base64
-    decoded = struct.unpack(f"<{BIN_COUNT}f", base64.b64decode(frame["data"]["payload"]))
-    assert all(pytest.approx(v, abs=1e-4) == -70.0 for v in decoded)
+    header, floats = _parse_viewer_binary_frame(await viewer.recv_bytes())
+    assert header["msg_type"] == "spectrum_frame"
+    assert header["agent_id"] == db_state["agent_id"]
+    assert header["frame_index"] == 0
+    assert header["config_version"] == 1
+    assert header["bin_count"] == BIN_COUNT
+    assert len(floats) == BIN_COUNT
+    assert all(pytest.approx(v, abs=1e-4) == -70.0 for v in floats)
 
     await viewer.close()
     await agent.close()
@@ -330,13 +353,13 @@ async def test_two_viewers_both_receive_frame(app, db_state):
         _spectrum_frame_msg(session_id, config_version=1, frame_index=7, payload=payload)
     )
 
-    frame1 = await viewer1.recv_json()
-    frame2 = await viewer2.recv_json()
+    header1, _ = _parse_viewer_binary_frame(await viewer1.recv_bytes())
+    header2, _ = _parse_viewer_binary_frame(await viewer2.recv_bytes())
 
-    assert frame1["msg_type"] == "spectrum_frame"
-    assert frame2["msg_type"] == "spectrum_frame"
-    assert frame1["frame_index"] == 7
-    assert frame2["frame_index"] == 7
+    assert header1["msg_type"] == "spectrum_frame"
+    assert header2["msg_type"] == "spectrum_frame"
+    assert header1["frame_index"] == 7
+    assert header2["frame_index"] == 7
 
     await viewer1.close()
     await viewer2.close()
@@ -419,13 +442,13 @@ async def test_viewer_receives_config_before_new_version_frame(app, db_state):
         _spectrum_frame_msg(session_id, config_version=2, frame_index=0, payload=payload)
     )
 
-    # Viewer must receive the reconfig stream_config before the new-version frame
-    msg1 = await viewer.recv_json()
-    msg2 = await viewer.recv_json()
-    assert msg1["msg_type"] == "stream_config"
-    assert msg1["config_version"] == 2
-    assert msg2["msg_type"] == "spectrum_frame"
-    assert msg2["config_version"] == 2
+    # Viewer must receive the reconfig stream_config (text) before the new-version frame (binary)
+    cfg = await viewer.recv_json()
+    assert cfg["msg_type"] == "stream_config"
+    assert cfg["config_version"] == 2
+    header, _ = _parse_viewer_binary_frame(await viewer.recv_bytes())
+    assert header["msg_type"] == "spectrum_frame"
+    assert header["config_version"] == 2
 
     await viewer.close()
     await agent.close()
