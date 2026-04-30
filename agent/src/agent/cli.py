@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib
+import importlib.metadata
 import os
 import sys
 from pathlib import Path
@@ -63,7 +64,7 @@ from agent.source.simulator import SimulatorSource
 from agent.source.wav import WavSource
 from agent.source.wav import read_iq_descriptor as wav_read_iq
 
-_VERSION = "0.3.0"
+_VERSION = importlib.metadata.version("rf-agent")
 _DEFAULT_CONFIG_PATHS = [
     Path("rf-agent.toml"),
     Path.home() / ".rf-agent" / "config.toml",
