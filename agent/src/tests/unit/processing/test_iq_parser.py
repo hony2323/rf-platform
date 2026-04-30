@@ -523,3 +523,67 @@ def test_parse_returns_unsupported_format_error_when_decode_raises(
 
     assert not isinstance(result, IQParseResult)
     assert result.code == IQParseErrorCode.UNSUPPORTED_FORMAT
+
+
+# ---------------------------------------------------------------------------
+# Stateless contract — parser must not retain state across calls
+# ---------------------------------------------------------------------------
+
+
+def test_parse_iq_is_deterministic_across_repeated_calls() -> None:
+    """Same (descriptor, buffer) → identical output every time, regardless
+    of intermediate calls with other inputs.
+    """
+    descriptor = make_descriptor(normalize=False, dc_offset_remove=False)
+    buf_a = struct.pack("<4f", 0.1, -0.2, 0.3, -0.4)
+    buf_b = struct.pack("<4f", 0.9, 0.8, -0.7, -0.6)
+
+    first = parse_iq(descriptor, buf_a)
+    parse_iq(descriptor, buf_b)  # interleaved unrelated call
+    second = parse_iq(descriptor, buf_a)
+
+    assert isinstance(first, IQParseResult)
+    assert isinstance(second, IQParseResult)
+    np.testing.assert_array_equal(first.samples, second.samples)
+    assert first.sample_count == second.sample_count
+
+
+def test_parse_iq_does_not_buffer_incomplete_bytes_across_calls() -> None:
+    """Two consecutive INCOMPLETE_SAMPLE calls must each fail in isolation.
+
+    If the parser secretly buffered the first call's 4 bytes, the second
+    4 bytes would complete one float32 IQ pair (8 bytes total) and the
+    second call would succeed. It must not.
+    """
+    descriptor = make_descriptor(normalize=False, dc_offset_remove=False)
+
+    err1 = parse_iq(descriptor, struct.pack("<f", 0.1))
+    err2 = parse_iq(descriptor, struct.pack("<f", 0.2))
+
+    assert not isinstance(err1, IQParseResult)
+    assert err1.code == IQParseErrorCode.INCOMPLETE_SAMPLE
+    assert not isinstance(err2, IQParseResult)
+    assert err2.code == IQParseErrorCode.INCOMPLETE_SAMPLE
+
+
+def test_parse_iq_caller_owned_remainder_concat_matches_single_call() -> None:
+    """Caller stitches partial chunks; parser sees the concatenated buffer.
+
+    Splitting one buffer into two pieces and feeding the joined remainder
+    must produce the same samples as feeding the whole buffer at once.
+    This locks down the "caller owns the remainder" contract.
+    """
+    descriptor = make_descriptor(normalize=False, dc_offset_remove=False)
+    full = struct.pack("<8f", 0.1, -0.1, 0.2, -0.2, 0.3, -0.3, 0.4, -0.4)
+    head, tail = full[:6], full[6:]  # 6 bytes is misaligned for float32 (4 bytes/elem)
+
+    err = parse_iq(descriptor, head)
+    assert not isinstance(err, IQParseResult)
+    assert err.code == IQParseErrorCode.INCOMPLETE_SAMPLE
+
+    rejoined = parse_iq(descriptor, head + tail)
+    one_shot = parse_iq(descriptor, full)
+
+    assert isinstance(rejoined, IQParseResult)
+    assert isinstance(one_shot, IQParseResult)
+    np.testing.assert_array_equal(rejoined.samples, one_shot.samples)

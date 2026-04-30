@@ -106,9 +106,7 @@ class _WS:
             if event["type"] == "websocket.send":
                 data = event.get("bytes")
                 if data is None:
-                    raise AssertionError(
-                        f"expected binary frame, got text: {event.get('text')!r}"
-                    )
+                    raise AssertionError(f"expected binary frame, got text: {event.get('text')!r}")
                 return data
             if event["type"] == "websocket.close":
                 raise WebSocketDisconnect(event.get("code", 1000))
