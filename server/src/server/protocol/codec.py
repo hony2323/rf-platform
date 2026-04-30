@@ -7,6 +7,7 @@ from typing import Any
 
 SUPPORTED_PROTOCOL_VERSION = "0.3"
 SUPPORTED_ENCODING = "json_base64"
+_VIEWER_HEADER_LEN_MAX = 0xFFFF
 
 
 class ProtocolError(Exception):
@@ -240,6 +241,12 @@ def encode_viewer_spectrum_frame_binary(
     header_bytes = json.dumps(header).encode("utf-8")
     pad = (-(2 + len(header_bytes))) % 4
     header_bytes += b" " * pad
+    if len(header_bytes) > _VIEWER_HEADER_LEN_MAX:
+        raise ProtocolError(
+            "INVALID_FRAME",
+            f"viewer frame header length {len(header_bytes)} exceeds uint16 limit",
+            fatal=False,
+        )
     return struct.pack(">H", len(header_bytes)) + header_bytes + payload_bytes
 
 

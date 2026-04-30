@@ -10,6 +10,7 @@ import json
 import struct
 
 from server.protocol.codec import (
+    ProtocolError,
     SpectrumFrameMsg,
     encode_viewer_spectrum_frame_binary,
 )
@@ -104,3 +105,25 @@ def test_decoded_floats_match_input_value() -> None:
     raw_payload = encoded[2 + header_len :]
     floats = struct.unpack(f"<{_BIN_COUNT}f", raw_payload)
     assert all(abs(v - -70.0) < 1e-6 for v in floats)
+
+
+def test_rejects_header_longer_than_uint16_prefix() -> None:
+    oversized_stream_id = "x" * 70000
+    msg = SpectrumFrameMsg(
+        node_id="node_x",
+        session_id=_SESSION_ID,
+        stream_id=oversized_stream_id,
+        config_version=_CONFIG_VERSION,
+        frame_index=_FRAME_INDEX,
+        timestamp_utc=_TIMESTAMP,
+        payload="",
+    )
+
+    try:
+        encode_viewer_spectrum_frame_binary(_AGENT_ID, _SESSION_ID, msg, _make_payload())
+    except ProtocolError as exc:
+        assert exc.code == "INVALID_FRAME"
+        assert exc.fatal is False
+        assert "header length" in exc.message
+    else:
+        raise AssertionError("expected ProtocolError for oversized viewer frame header")

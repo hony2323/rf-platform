@@ -288,9 +288,23 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                         )
                     )
                     continue
-                outbound = encode_viewer_spectrum_frame_binary(
-                    str(agent.id), session_id, msg, payload_bytes
-                )
+                try:
+                    outbound = encode_viewer_spectrum_frame_binary(
+                        str(agent.id), session_id, msg, payload_bytes
+                    )
+                except ProtocolError as exc:
+                    await websocket.send_text(
+                        encode_error(
+                            session_id,
+                            exc.code,
+                            exc.message,
+                            fatal=exc.fatal,
+                            stream_id=msg.stream_id,
+                            config_version=msg.config_version,
+                            frame_index=msg.frame_index,
+                        )
+                    )
+                    continue
                 for viewer in registry.get_viewers_for_session(session_id):
                     try:
                         viewer.send_queue.put_nowait(outbound)
