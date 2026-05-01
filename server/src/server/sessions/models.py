@@ -21,6 +21,7 @@ class LiveAgentSession:
     bin_count: int = 0
     last_stream_config: dict | None = None
     last_config_version: int | None = None
+    wire_encoding: str = "json_base64"
 
 
 _VIEWER_QUEUE_SIZE = 64

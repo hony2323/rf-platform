@@ -195,6 +195,7 @@ def make_session(
             sample_rate_hz=1_000_000,
             center_freq_hz=100_000_000,
         ),
+        wire_encoding=WireEncoding.JSON_BASE64,
     )
     return Session(config=config, transport=transport, codec=codec)
 
@@ -1078,6 +1079,7 @@ def make_session_with_metrics(
             sample_rate_hz=1_000_000,
             center_freq_hz=100_000_000,
         ),
+        wire_encoding=WireEncoding.JSON_BASE64,
     )
     metrics = MetricsCollector()
     session = Session(config=config, transport=transport, codec=codec, metrics=metrics)

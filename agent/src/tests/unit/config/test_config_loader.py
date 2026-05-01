@@ -80,7 +80,7 @@ def test_load_config_applies_defaults_for_optional_fields() -> None:
 
     assert cfg.identity.agent_version == "0.3.0"
     assert cfg.stream_id == "default"
-    assert cfg.wire_encoding == WireEncoding.JSON_BASE64
+    assert cfg.wire_encoding == WireEncoding.BINARY_WS
     assert cfg.iq.dc_offset_remove is True
     assert cfg.iq.normalize is True
     assert cfg.rf.window_fn == WindowFunction.HANN
@@ -341,9 +341,9 @@ def test_config_defaults_stream_id_to_default() -> None:
     assert cfg.stream_id == "default"
 
 
-def test_config_defaults_wire_encoding_to_json_base64() -> None:
+def test_config_defaults_wire_encoding_to_binary_ws() -> None:
     cfg = load_config_dict(_valid_raw())
-    assert cfg.wire_encoding == WireEncoding.JSON_BASE64
+    assert cfg.wire_encoding == WireEncoding.BINARY_WS
 
 
 def test_config_defaults_iq_dc_offset_remove_to_true() -> None:
