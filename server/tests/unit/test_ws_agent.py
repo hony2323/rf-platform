@@ -940,9 +940,7 @@ async def test_binary_ws_payload_length_mismatch_emits_error(app, db_state):
     session_id = await _do_binary_handshake(ws, bin_count=BIN_COUNT)
 
     short_payload = struct.pack(f"<{BIN_COUNT - 1}f", *[-70.0] * (BIN_COUNT - 1))
-    frame = _build_binary_spectrum_frame(
-        session_id, bin_count=BIN_COUNT, payload=short_payload
-    )
+    frame = _build_binary_spectrum_frame(session_id, bin_count=BIN_COUNT, payload=short_payload)
     await ws.send_bytes(frame)
 
     err = await ws.recv_json()

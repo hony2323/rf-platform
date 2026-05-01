@@ -153,7 +153,9 @@ def decode_spectrum_frame_binary(buf: bytes) -> SpectrumFrameMsg:
     try:
         header = json.loads(buf[2 : 2 + header_len])
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise ProtocolError("INVALID_FRAME", f"binary frame header not valid JSON: {exc}", fatal=False) from exc
+        raise ProtocolError(
+            "INVALID_FRAME", f"binary frame header not valid JSON: {exc}", fatal=False
+        ) from exc
     if not isinstance(header, dict):
         raise ProtocolError("INVALID_FRAME", "binary frame header is not an object", fatal=False)
     if header.get("msg_type") != "spectrum_frame":
