@@ -89,6 +89,9 @@ class _WS:
     async def send_text(self, text: str) -> None:
         await self._c2s.put({"type": "websocket.receive", "text": text, "bytes": None})
 
+    async def send_bytes(self, data: bytes) -> None:
+        await self._c2s.put({"type": "websocket.receive", "text": None, "bytes": data})
+
     async def send_json(self, data: Any) -> None:
         await self.send_text(json.dumps(data))
 
@@ -97,6 +100,17 @@ class _WS:
             event = await asyncio.wait_for(self._s2c.get(), timeout=timeout)
             if event["type"] == "websocket.send":
                 return event.get("text") or (event.get("bytes") or b"").decode()
+            if event["type"] == "websocket.close":
+                raise WebSocketDisconnect(event.get("code", 1000))
+
+    async def recv_bytes(self, timeout: float = 2.0) -> bytes:
+        while True:
+            event = await asyncio.wait_for(self._s2c.get(), timeout=timeout)
+            if event["type"] == "websocket.send":
+                data = event.get("bytes")
+                if data is None:
+                    raise AssertionError(f"expected binary frame, got text: {event.get('text')!r}")
+                return data
             if event["type"] == "websocket.close":
                 raise WebSocketDisconnect(event.get("code", 1000))
 
@@ -813,4 +827,224 @@ async def test_mid_session_node_id_mismatch_is_ignored_and_errors(app, db_state)
     assert err["code"] == "INVALID_FRAME"
     assert err["fatal"] is False
     assert session.last_heartbeat_at == before  # no mutation
+    await ws.close()
+
+
+# ---------------------------------------------------------------------------
+# binary_ws encoding (agent → server)
+# ---------------------------------------------------------------------------
+
+
+def _connect_msg_binary() -> dict:
+    return dict(_connect_msg(), requested_encoding="binary_ws")
+
+
+def _build_binary_spectrum_frame(
+    session_id: str,
+    *,
+    config_version: int = 1,
+    frame_index: int = 0,
+    bin_count: int = 4,
+    payload: bytes | None = None,
+    omit_field: str | None = None,
+    msg_type: str = "spectrum_frame",
+) -> bytes:
+    header: dict = {
+        "msg_type": msg_type,
+        "node_id": "node_x",
+        "session_id": session_id,
+        "stream_id": "default",
+        "config_version": config_version,
+        "frame_index": frame_index,
+        "timestamp_utc": "2026-01-01T00:00:01.000Z",
+        "bin_count": bin_count,
+    }
+    if omit_field is not None:
+        header.pop(omit_field, None)
+    header_bytes = json.dumps(header).encode("utf-8")
+    if payload is None:
+        payload = struct.pack(f"<{bin_count}f", *[-70.0] * bin_count)
+    return struct.pack(">H", len(header_bytes)) + header_bytes + payload
+
+
+async def _do_binary_handshake(ws: _WS, bin_count: int = 4) -> str:
+    await ws.connect()
+    session_id = ws.accept_headers["x-session-id"]
+    await ws.send_json(_connect_msg_binary())
+    ack = await ws.recv_json()
+    assert ack["msg_type"] == "connect_ack"
+    assert ack["wire_encoding"] == "binary_ws"
+    await ws.send_json(_stream_config_msg(session_id, bin_count=bin_count))
+    cfg_ack = await ws.recv_json()
+    assert cfg_ack["msg_type"] == "stream_config_ack"
+    return session_id
+
+
+async def test_binary_ws_connect_ack_echoes_encoding(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    await ws.connect()
+    await ws.send_json(_connect_msg_binary())
+    ack = await ws.recv_json()
+    assert ack["msg_type"] == "connect_ack"
+    assert ack["wire_encoding"] == "binary_ws"
+    await ws.close()
+
+
+async def test_binary_ws_session_persists_encoding(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_binary_handshake(ws, bin_count=4)
+    session = app.state.registry.get_session(session_id)
+    assert session is not None
+    assert session.wire_encoding == "binary_ws"
+    await ws.close()
+
+
+async def test_binary_ws_valid_frame_fans_out_to_viewer(app, db_state):
+    """Full forward path: agent sends binary → server decodes → viewer gets binary."""
+    from server.sessions.models import ViewerSubscription
+
+    BIN_COUNT = 4
+    FRAME_VALUE = -55.0
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_binary_handshake(ws, bin_count=BIN_COUNT)
+
+    viewer = ViewerSubscription(
+        subscription_id="sub_test",
+        user_id=str(db_state["user_id"]),
+        agent_id=str(db_state["agent_id"]),
+        session_id=session_id,
+    )
+    app.state.registry.add_viewer(viewer)
+
+    payload = struct.pack(f"<{BIN_COUNT}f", *[FRAME_VALUE] * BIN_COUNT)
+    frame = _build_binary_spectrum_frame(
+        session_id, config_version=1, frame_index=0, bin_count=BIN_COUNT, payload=payload
+    )
+    await ws.send_bytes(frame)
+
+    forwarded = await asyncio.wait_for(viewer.send_queue.get(), timeout=2.0)
+    assert isinstance(forwarded, bytes)
+    header_len = struct.unpack(">H", forwarded[:2])[0]
+    header = json.loads(forwarded[2 : 2 + header_len])
+    assert header["msg_type"] == "spectrum_frame"
+    assert header["frame_index"] == 0
+    assert header["bin_count"] == BIN_COUNT
+    forwarded_payload = forwarded[2 + header_len :]
+    assert forwarded_payload == payload
+    await ws.close()
+
+
+async def test_binary_ws_payload_length_mismatch_emits_error(app, db_state):
+    BIN_COUNT = 4
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_binary_handshake(ws, bin_count=BIN_COUNT)
+
+    short_payload = struct.pack(f"<{BIN_COUNT - 1}f", *[-70.0] * (BIN_COUNT - 1))
+    frame = _build_binary_spectrum_frame(session_id, bin_count=BIN_COUNT, payload=short_payload)
+    await ws.send_bytes(frame)
+
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is False
+    await ws.close()
+
+
+async def test_binary_ws_malformed_header_emits_error(app, db_state):
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    await _do_binary_handshake(ws, bin_count=4)
+
+    bad_header = b"this is not json"
+    frame = struct.pack(">H", len(bad_header)) + bad_header + struct.pack("<4f", *[0.0] * 4)
+    await ws.send_bytes(frame)
+
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    await ws.close()
+
+
+async def test_binary_ws_text_spectrum_frame_rejected(app, db_state):
+    """In binary_ws mode, a JSON text spectrum_frame must be rejected."""
+    BIN_COUNT = 4
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_binary_handshake(ws, bin_count=BIN_COUNT)
+
+    text_payload = base64.b64encode(struct.pack(f"<{BIN_COUNT}f", *[-70.0] * BIN_COUNT)).decode()
+    await ws.send_json(
+        _spectrum_frame_msg(session_id, config_version=1, frame_index=0, payload=text_payload)
+    )
+
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert "binary" in err["message"].lower()
+    await ws.close()
+
+
+async def test_binary_ws_header_bin_count_mismatch_rejected(app, db_state):
+    """Header bin_count must match session bin_count even if payload length matches header."""
+    from server.sessions.models import ViewerSubscription
+
+    SESSION_BIN_COUNT = 4
+    LYING_BIN_COUNT = 8  # header says 8 bins, payload supplies 8 floats — internally consistent
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_binary_handshake(ws, bin_count=SESSION_BIN_COUNT)
+
+    viewer = ViewerSubscription(
+        subscription_id="sub_mismatch",
+        user_id=str(db_state["user_id"]),
+        agent_id=str(db_state["agent_id"]),
+        session_id=session_id,
+    )
+    app.state.registry.add_viewer(viewer)
+
+    payload = struct.pack(f"<{LYING_BIN_COUNT}f", *[-70.0] * LYING_BIN_COUNT)
+    frame = _build_binary_spectrum_frame(session_id, bin_count=LYING_BIN_COUNT, payload=payload)
+    await ws.send_bytes(frame)
+
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is False
+    assert "bin_count" in err["message"]
+    # And nothing was fanned out to the viewer.
+    assert viewer.send_queue.empty()
+    await ws.close()
+
+
+async def test_binary_ws_missing_bin_count_in_header_rejected(app, db_state):
+    """A binary spectrum_frame whose header omits bin_count must be INVALID_FRAME."""
+    BIN_COUNT = 4
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_binary_handshake(ws, bin_count=BIN_COUNT)
+
+    frame = _build_binary_spectrum_frame(session_id, bin_count=BIN_COUNT, omit_field="bin_count")
+    await ws.send_bytes(frame)
+
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is False
+    assert "bin_count" in err["message"]
+    await ws.close()
+
+
+async def test_binary_ws_heartbeat_still_text(app, db_state):
+    """Control-plane messages (heartbeat) stay JSON text in binary_ws mode."""
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_binary_handshake(ws, bin_count=4)
+
+    before = app.state.registry.get_session(session_id).last_heartbeat_at
+    await ws.send_json(
+        {
+            "msg_type": "heartbeat",
+            "node_id": "node_x",
+            "session_id": session_id,
+            "timestamp_utc": "2026-01-01T00:00:05.000Z",
+        }
+    )
+    await asyncio.sleep(0.01)
+    after = app.state.registry.get_session(session_id).last_heartbeat_at
+    assert after > before
     await ws.close()

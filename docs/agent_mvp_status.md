@@ -1,11 +1,11 @@
 # Agent — MVP Status
 
-**Date:** 2026-04-22  
-**Protocol version:** 0.3 (frozen)
+**Date:** 2026-05-01  
+**Protocol version:** 0.4 (`protocol/agent_server_contract_v0_4.md`)
 
 This document describes what is implemented in the agent, what is stubbed or hollow, and what is missing before the agent can be considered production-ready for MVP.
 
-Note: 2026-04-22 added browser signup and account deletion on the server/web side. The agent implementation itself is unchanged in this update.
+**v0.4 update (2026-05-01):** Default wire encoding flipped from `json_base64` to `binary_ws`. Agent → server `spectrum_frame` is now sent as a binary WS message (`[uint16_be header_len][JSON header][raw float32 LE]`) — same layout as the existing server → viewer frame. `json_base64` remains supported. See `docs/agent_wire_v0_4_plan.md` for the bench numbers and rationale.
 
 ---
 
@@ -72,11 +72,11 @@ Frozen dataclasses and enums. Nothing else imports into here.
 
 | Component | What it does |
 |---|---|
-| `JsonBase64Codec` | Encodes all outbound messages (connect, stream_config, heartbeat, agent_status, spectrum_frame) and decodes all inbound messages (connect_ack, stream_config_ack, error, disconnect). |
-| `encode_spectrum_frame_binary_ws` | Binary WS frame: `[uint16 header_len][JSON header][raw float32 payload]`. |
+| `JsonBase64Codec` | Encodes all outbound control-plane messages (connect, stream_config, heartbeat, agent_status) plus the legacy JSON `spectrum_frame`; decodes all inbound messages (connect_ack, stream_config_ack, error, disconnect). |
+| `encode_spectrum_frame_binary_ws` | v0.4 binary WS frame: `[uint16_be header_len][JSON header][raw float32 LE payload]`. Selected by the session send loop when `wire_encoding == BINARY_WS`. |
 | Inbound types | `ConnectAck`, `StreamConfigAck`, `ServerError`, `Disconnect` |
 
-All message fields match protocol v0.3. `HardwareInfo` is in the domain but **not wired into `encode_connect`** — the `hardware` block is always omitted from outbound `connect` messages.
+Message fields match protocol v0.3 except for the v0.4 binary `spectrum_frame` layout above. `HardwareInfo` is in the domain but **not wired into `encode_connect`** — the `hardware` block is always omitted from outbound `connect` messages.
 
 ---
 
@@ -207,9 +207,9 @@ The protocol spec includes an optional `hardware` block in `connect`. `HardwareI
 
 ## Post-MVP (do not implement)
 
-Per protocol v0.3 and CLAUDE.md — deferred:
+Per protocol v0.4 and CLAUDE.md — deferred:
 
-- `binary_ws` and `msgpack` wire encodings *(note: binary_ws is partially implemented but marked post-MVP in the protocol doc)*
+- `msgpack` wire encoding
 - `epoch_ms` replacing `timestamp_utc`
 - `data.phase_rad`, `data.psd_db`
 - uint8 FFT output quantization

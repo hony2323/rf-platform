@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
 import json
 import logging
@@ -12,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.deps import get_db
 from server.protocol.codec import (
-    SUPPORTED_ENCODING,
+    SUPPORTED_ENCODINGS,
     SUPPORTED_PROTOCOL_VERSION,
     AgentStatusMsg,
     ConnectMsg,
@@ -21,6 +20,7 @@ from server.protocol.codec import (
     SpectrumFrameMsg,
     StreamConfigMsg,
     decode_message,
+    decode_spectrum_frame_binary,
     encode_connect_ack,
     encode_error,
     encode_stream_config_ack,
@@ -113,20 +113,22 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             )
             return
 
-        if msg.requested_encoding != SUPPORTED_ENCODING:
+        if msg.requested_encoding not in SUPPORTED_ENCODINGS:
             await _send_fatal(
                 websocket,
                 session_id,
                 "UNSUPPORTED_ENCODING",
-                f"server only supports {SUPPORTED_ENCODING}",
+                f"server supports {SUPPORTED_ENCODINGS}, got {msg.requested_encoding!r}",
             )
             return
+
+        wire_encoding = msg.requested_encoding
 
         if err := _check_node_id(msg.node_id, agent.stable_node_id):
             await _send_fatal(websocket, session_id, "INVALID_FRAME", err)
             return
 
-        await websocket.send_text(encode_connect_ack(session_id))
+        await websocket.send_text(encode_connect_ack(session_id, wire_encoding=wire_encoding))
 
         # ---- expect: stream_config ----
         raw = await websocket.receive_text()
@@ -175,6 +177,7 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
             bin_count=bin_count,
             last_stream_config=config_cache,
             last_config_version=config_version,
+            wire_encoding=wire_encoding,
         )
 
         await websocket.send_text(encode_stream_config_ack(session_id, stream_id, config_version))
@@ -183,14 +186,46 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
 
         # ---- frame / heartbeat / status loop ----
         while True:
-            raw = await websocket.receive_text()
-            try:
-                msg = decode_message(raw)
-            except ProtocolError as exc:
-                await websocket.send_text(
-                    encode_error(session_id, exc.code, exc.message, fatal=False)
-                )
-                continue
+            if wire_encoding == "binary_ws":
+                event = await websocket.receive()
+                if event["type"] == "websocket.disconnect":
+                    raise WebSocketDisconnect(event.get("code", 1000))
+                if (raw_bytes := event.get("bytes")) is not None:
+                    try:
+                        msg = decode_spectrum_frame_binary(raw_bytes)
+                    except ProtocolError as exc:
+                        await websocket.send_text(
+                            encode_error(session_id, exc.code, exc.message, fatal=False)
+                        )
+                        continue
+                else:
+                    raw = event.get("text") or ""
+                    try:
+                        msg = decode_message(raw)
+                    except ProtocolError as exc:
+                        await websocket.send_text(
+                            encode_error(session_id, exc.code, exc.message, fatal=False)
+                        )
+                        continue
+                    if isinstance(msg, SpectrumFrameMsg):
+                        await websocket.send_text(
+                            encode_error(
+                                session_id,
+                                "INVALID_FRAME",
+                                "spectrum_frame must be sent as binary in binary_ws mode",
+                                fatal=False,
+                            )
+                        )
+                        continue
+            else:
+                raw = await websocket.receive_text()
+                try:
+                    msg = decode_message(raw)
+                except ProtocolError as exc:
+                    await websocket.send_text(
+                        encode_error(session_id, exc.code, exc.message, fatal=False)
+                    )
+                    continue
 
             if isinstance(msg, (HeartbeatMsg, AgentStatusMsg, StreamConfigMsg, SpectrumFrameMsg)):
                 err = _check_node_id(msg.node_id, agent.stable_node_id) or _check_session_id(
@@ -259,14 +294,14 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                         )
                     )
                     continue
-                try:
-                    payload_bytes = base64.b64decode(msg.payload, validate=True)
-                except Exception:
+                payload_bytes = msg.payload
+                if msg.bin_count is not None and msg.bin_count != session.bin_count:
                     await websocket.send_text(
                         encode_error(
                             session_id,
                             "INVALID_FRAME",
-                            "payload is not valid base64",
+                            f"header bin_count {msg.bin_count} != session bin_count "
+                            f"{session.bin_count}",
                             fatal=False,
                             stream_id=msg.stream_id,
                             config_version=msg.config_version,

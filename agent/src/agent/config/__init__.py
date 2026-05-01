@@ -77,7 +77,7 @@ class AgentConfig:
     # stream_id: identifies the RF stream within a session. The server requires
     # this in stream_config and spectrum_frame messages. MVP default is "default".
     stream_id: str = "default"
-    wire_encoding: WireEncoding = WireEncoding.JSON_BASE64
+    wire_encoding: WireEncoding = WireEncoding.BINARY_WS
     queues: QueueConfig = field(default_factory=QueueConfig)
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     reconnect: ReconnectConfig = field(default_factory=ReconnectConfig)

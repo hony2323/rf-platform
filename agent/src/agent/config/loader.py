@@ -48,7 +48,7 @@ def load_config_dict(raw: Mapping[str, Any]) -> AgentConfig:
     iq = _load_iq(raw.get("iq"))
     rf = _load_rf(raw.get("rf"))
     stream_id = _load_stream_id(raw.get("stream_id", "default"))
-    wire_encoding = _load_wire_encoding(raw.get("wire_encoding", "json_base64"))
+    wire_encoding = _load_wire_encoding(raw.get("wire_encoding", "binary_ws"))
     queues = _load_queues(raw.get("queues"))
     telemetry = _load_telemetry(raw.get("telemetry"))
     reconnect = _load_reconnect(raw.get("reconnect"))
