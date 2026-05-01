@@ -295,6 +295,20 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     )
                     continue
                 payload_bytes = msg.payload
+                if msg.bin_count is not None and msg.bin_count != session.bin_count:
+                    await websocket.send_text(
+                        encode_error(
+                            session_id,
+                            "INVALID_FRAME",
+                            f"header bin_count {msg.bin_count} != session bin_count "
+                            f"{session.bin_count}",
+                            fatal=False,
+                            stream_id=msg.stream_id,
+                            config_version=msg.config_version,
+                            frame_index=msg.frame_index,
+                        )
+                    )
+                    continue
                 expected_len = session.bin_count * 4
                 if len(payload_bytes) != expected_len:
                     await websocket.send_text(

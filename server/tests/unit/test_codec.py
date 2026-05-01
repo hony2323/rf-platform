@@ -253,3 +253,66 @@ def test_decode_binary_preserves_payload_byte_equality() -> None:
     assert msg.payload == raw
     floats = struct.unpack(f"<{_BIN_COUNT}f", msg.payload)
     assert all(abs(floats[i] - (float(i) - 50.0)) < 1e-6 for i in range(_BIN_COUNT))
+
+
+def test_decode_binary_returns_bin_count_from_header() -> None:
+    msg = decode_spectrum_frame_binary(_build_agent_binary_frame())
+    assert msg.bin_count == _BIN_COUNT
+
+
+def test_decode_binary_rejects_missing_bin_count() -> None:
+    buf = _build_agent_binary_frame(omit_field="bin_count")
+    try:
+        decode_spectrum_frame_binary(buf)
+    except ProtocolError as exc:
+        assert exc.code == "INVALID_FRAME"
+        assert "bin_count" in exc.message
+    else:
+        raise AssertionError("expected ProtocolError for missing bin_count")
+
+
+def test_decode_binary_rejects_non_int_bin_count() -> None:
+    # Header with bin_count as a string should fail validation.
+    header = {
+        "msg_type": "spectrum_frame",
+        "node_id": "node_x",
+        "session_id": _SESSION_ID,
+        "stream_id": _STREAM_ID,
+        "config_version": _CONFIG_VERSION,
+        "frame_index": _FRAME_INDEX,
+        "timestamp_utc": _TIMESTAMP,
+        "bin_count": "16",
+    }
+    header_bytes = json.dumps(header).encode("utf-8")
+    buf = struct.pack(">H", len(header_bytes)) + header_bytes + _make_payload()
+    try:
+        decode_spectrum_frame_binary(buf)
+    except ProtocolError as exc:
+        assert exc.code == "INVALID_FRAME"
+        assert "bin_count" in exc.message
+    else:
+        raise AssertionError("expected ProtocolError for non-int bin_count")
+
+
+def test_decode_binary_rejects_non_positive_bin_count() -> None:
+    buf = _build_agent_binary_frame(bin_count=0, payload=b"")
+    try:
+        decode_spectrum_frame_binary(buf)
+    except ProtocolError as exc:
+        assert exc.code == "INVALID_FRAME"
+        assert "bin_count" in exc.message
+    else:
+        raise AssertionError("expected ProtocolError for bin_count=0")
+
+
+def test_decode_binary_rejects_payload_length_not_matching_header_bin_count() -> None:
+    # Header advertises 16 bins but payload has only 8 floats.
+    short_payload = struct.pack("<8f", *[-70.0] * 8)
+    buf = _build_agent_binary_frame(bin_count=_BIN_COUNT, payload=short_payload)
+    try:
+        decode_spectrum_frame_binary(buf)
+    except ProtocolError as exc:
+        assert exc.code == "INVALID_FRAME"
+        assert "payload length" in exc.message
+    else:
+        raise AssertionError("expected ProtocolError for header/payload length mismatch")

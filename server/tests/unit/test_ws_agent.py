@@ -982,6 +982,54 @@ async def test_binary_ws_text_spectrum_frame_rejected(app, db_state):
     await ws.close()
 
 
+async def test_binary_ws_header_bin_count_mismatch_rejected(app, db_state):
+    """Header bin_count must match session bin_count even if payload length matches header."""
+    from server.sessions.models import ViewerSubscription
+
+    SESSION_BIN_COUNT = 4
+    LYING_BIN_COUNT = 8  # header says 8 bins, payload supplies 8 floats — internally consistent
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_binary_handshake(ws, bin_count=SESSION_BIN_COUNT)
+
+    viewer = ViewerSubscription(
+        subscription_id="sub_mismatch",
+        user_id=str(db_state["user_id"]),
+        agent_id=str(db_state["agent_id"]),
+        session_id=session_id,
+    )
+    app.state.registry.add_viewer(viewer)
+
+    payload = struct.pack(f"<{LYING_BIN_COUNT}f", *[-70.0] * LYING_BIN_COUNT)
+    frame = _build_binary_spectrum_frame(session_id, bin_count=LYING_BIN_COUNT, payload=payload)
+    await ws.send_bytes(frame)
+
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is False
+    assert "bin_count" in err["message"]
+    # And nothing was fanned out to the viewer.
+    assert viewer.send_queue.empty()
+    await ws.close()
+
+
+async def test_binary_ws_missing_bin_count_in_header_rejected(app, db_state):
+    """A binary spectrum_frame whose header omits bin_count must be INVALID_FRAME."""
+    BIN_COUNT = 4
+    ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
+    session_id = await _do_binary_handshake(ws, bin_count=BIN_COUNT)
+
+    frame = _build_binary_spectrum_frame(session_id, bin_count=BIN_COUNT, omit_field="bin_count")
+    await ws.send_bytes(frame)
+
+    err = await ws.recv_json()
+    assert err["msg_type"] == "error"
+    assert err["code"] == "INVALID_FRAME"
+    assert err["fatal"] is False
+    assert "bin_count" in err["message"]
+    await ws.close()
+
+
 async def test_binary_ws_heartbeat_still_text(app, db_state):
     """Control-plane messages (heartbeat) stay JSON text in binary_ws mode."""
     ws = _WS(app, "/ws/agent", headers={"authorization": f"Bearer {TOKEN_RAW}"})
