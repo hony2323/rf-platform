@@ -202,7 +202,7 @@ def test_rf_config_is_frozen() -> None:
 
 def test_agent_config_default_wire_encoding() -> None:
     cfg = _make_agent_config()
-    assert cfg.wire_encoding == WireEncoding.JSON_BASE64
+    assert cfg.wire_encoding == WireEncoding.BINARY_WS
 
 
 def test_agent_config_uses_default_sub_configs() -> None:

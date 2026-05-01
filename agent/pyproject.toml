@@ -47,8 +47,10 @@ exclude = ["src/tests"]
 [tool.pytest.ini_options]
 testpaths = ["src/tests"]
 asyncio_mode = "auto"
+addopts = "-m 'not bench'"
 markers = [
     "integration: marks integration tests (deselect with '-m \"not integration\"')",
+    "bench: marks performance benches (run with '-m bench'; deselected by default)",
 ]
 
 [tool.mypy]

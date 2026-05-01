@@ -1,9 +1,9 @@
 # Server — MVP Status
 
-**Date:** 2026-04-30
-**Agent protocol version:** 0.3 (frozen — `protocol/agent_server_contract_v0_3.md`)
-**Viewer contract version:** 0.4 (`docs/server_api_contract.md`) — viewer `spectrum_frame` is now a binary WS message; agent contract unchanged.
-**Plan reference:** `docs/server_mvp_sqlite_plan.md`
+**Date:** 2026-05-01
+**Agent protocol version:** 0.4 (`protocol/agent_server_contract_v0_4.md`) — agent `spectrum_frame` is now binary by default; `json_base64` still supported.
+**Viewer contract version:** 0.4 (`docs/server_api_contract.md`)
+**Plan references:** `docs/server_mvp_sqlite_plan.md`, `docs/agent_wire_v0_4_plan.md`
 
 This document tracks which implementation phases are done, in-progress, or pending.
 
@@ -22,6 +22,7 @@ This document tracks which implementation phases are done, in-progress, or pendi
 | 7 | Viewer WebSocket + fanout | **Done** |
 | 8 | Contract freeze | **Done** |
 | 9 | Operational polish | **Done** |
+| 10 | Agent wire v0.4 (binary spectrum_frame) | **Done** |
 
 ---
 
@@ -217,3 +218,28 @@ This document tracks which implementation phases are done, in-progress, or pendi
 - Tests pass explicit `:memory:` to `create_app()` — settings are not consulted in tests
 - `SESSION_SECRET` default is labeled "dev-secret-change-in-production" in docs
 - Bootstrap is idempotent-safe: duplicate email exits non-zero rather than silently overwriting
+
+---
+
+## Phase 10 — Agent wire v0.4 (binary spectrum_frame) ✓
+
+**Goal:** Accept binary `spectrum_frame` from agents over `/ws/agent`, eliminating the base64+JSON round-trip in the relay path. Default for new agents.
+
+### What exists
+
+| File | Purpose |
+|---|---|
+| `protocol/codec.py` | `SUPPORTED_ENCODINGS = ("json_base64", "binary_ws")`; `SpectrumFrameMsg.payload` is now `bytes` (JSON path base64-decodes inside `decode_message`); new `decode_spectrum_frame_binary(buf) → SpectrumFrameMsg`. Decoder requires header `bin_count` (positive int) and validates `len(payload) == bin_count × 4` as a header self-consistency check; `SpectrumFrameMsg.bin_count` carries it forward. |
+| `sessions/models.py` | `LiveAgentSession.wire_encoding` field added; persisted from `connect.requested_encoding` |
+| `app/ws_agent.py` | `connect_ack` echoes the negotiated encoding; frame loop branches on `session.wire_encoding` — uses `websocket.receive()` in binary mode, dispatches binary→`decode_spectrum_frame_binary` and text→`decode_message`; binary text spectrum_frames rejected as `INVALID_FRAME`. Additionally rejects binary frames whose header `bin_count` doesn't match the cached session `bin_count` (catches stale headers across config changes). |
+| `tests/unit/test_codec.py` | +13 tests for `decode_spectrum_frame_binary`: roundtrip, short buffer, header_len overflow, zero header_len, non-JSON header, wrong msg_type, missing field, payload byte-equality, plus `bin_count` validation: returned from header, missing → `INVALID_FRAME`, non-int → `INVALID_FRAME`, non-positive → `INVALID_FRAME`, payload length not matching header `bin_count` → `INVALID_FRAME` |
+| `tests/unit/test_ws_agent.py` | +9 tests: `connect_ack` echo, session field persisted, full agent→server→viewer binary fanout (raw payload preserved end-to-end), payload-length mismatch, malformed header, text-frame-in-binary-mode rejected, heartbeat stays text, header `bin_count` mismatch with session rejected (no fanout to viewer), missing header `bin_count` rejected. `_WS` test helper extended with `send_bytes`/`recv_bytes`. |
+| `protocol/agent_server_contract_v0_4.md` | Frozen v0.4 contract |
+| `docs/agent_wire_v0_4_plan.md` | Bench harness, measurements, decision rationale |
+
+### Key constraints upheld
+- Negotiation is at handshake only; encoding immutable for session lifetime.
+- Control plane (`heartbeat`, `agent_status`, `stream_config` re-config) stays JSON text in **both** encodings.
+- Server → viewer wire is byte-identical to before (the relay's payload bytes path was already binary-out).
+- `json_base64` continues to work — existing v0.3 agents not yet upgraded keep streaming.
+- Per-message zlib `permessage-deflate` benchmarked and **rejected** for default — measured 40× p50 latency cost on localhost vs 16% wire saving on noise payloads. Available later if a deployment needs it.

@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import base64
 import json
 import struct
 from dataclasses import dataclass, field
 from typing import Any
 
 SUPPORTED_PROTOCOL_VERSION = "0.3"
-SUPPORTED_ENCODING = "json_base64"
+SUPPORTED_ENCODINGS: tuple[str, ...] = ("json_base64", "binary_ws")
+SUPPORTED_ENCODING = "json_base64"  # default when client did not request one
 _VIEWER_HEADER_LEN_MAX = 0xFFFF
+_AGENT_HEADER_LEN_MAX = 0xFFFF
 
 
 class ProtocolError(Exception):
@@ -60,7 +63,8 @@ class SpectrumFrameMsg:
     config_version: int
     frame_index: int
     timestamp_utc: str
-    payload: str  # base64-encoded float32 LE
+    payload: bytes  # raw float32 LE bytes (already base64-decoded if JSON path)
+    bin_count: int | None = None  # required by binary_ws header; absent on json_base64
 
 
 InboundMsg = ConnectMsg | StreamConfigMsg | HeartbeatMsg | AgentStatusMsg | SpectrumFrameMsg
@@ -105,6 +109,13 @@ def decode_message(raw: str) -> InboundMsg:
                 raw=data,
             )
         if msg_type == "spectrum_frame":
+            payload_b64 = data["data"]["payload"]
+            try:
+                payload_bytes = base64.b64decode(payload_b64, validate=True)
+            except Exception as exc:
+                raise ProtocolError(
+                    "INVALID_FRAME", "payload is not valid base64", fatal=False
+                ) from exc
             return SpectrumFrameMsg(
                 node_id=data["node_id"],
                 session_id=data["session_id"],
@@ -112,12 +123,79 @@ def decode_message(raw: str) -> InboundMsg:
                 config_version=data["config_version"],
                 frame_index=data["frame_index"],
                 timestamp_utc=data["timestamp_utc"],
-                payload=data["data"]["payload"],
+                payload=payload_bytes,
             )
     except KeyError as exc:
         raise ProtocolError("INVALID_FRAME", f"missing field: {exc}", fatal=False) from exc
 
     raise ProtocolError("INVALID_FRAME", f"unknown msg_type: {msg_type!r}", fatal=False)
+
+
+def decode_spectrum_frame_binary(buf: bytes) -> SpectrumFrameMsg:
+    """Decode an agent → server binary spectrum_frame.
+
+    Wire layout: ``[uint16_be header_len][header_json_utf8 (padded)][raw float32 LE]``
+
+    Returns a :class:`SpectrumFrameMsg` with ``payload`` set to the raw payload
+    bytes (no base64 decode). Raises :class:`ProtocolError` with code
+    ``INVALID_FRAME`` on any parse failure.
+    """
+    if len(buf) < 2:
+        raise ProtocolError(
+            "INVALID_FRAME", "binary frame shorter than header length prefix", fatal=False
+        )
+    header_len = struct.unpack(">H", buf[:2])[0]
+    if header_len == 0 or 2 + header_len > len(buf):
+        raise ProtocolError(
+            "INVALID_FRAME",
+            f"binary frame header_len {header_len} overflows buffer of {len(buf)} bytes",
+            fatal=False,
+        )
+    try:
+        header = json.loads(buf[2 : 2 + header_len])
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ProtocolError(
+            "INVALID_FRAME", f"binary frame header not valid JSON: {exc}", fatal=False
+        ) from exc
+    if not isinstance(header, dict):
+        raise ProtocolError("INVALID_FRAME", "binary frame header is not an object", fatal=False)
+    if header.get("msg_type") != "spectrum_frame":
+        raise ProtocolError(
+            "INVALID_FRAME",
+            f"binary frame msg_type {header.get('msg_type')!r} != 'spectrum_frame'",
+            fatal=False,
+        )
+    payload = buf[2 + header_len :]
+    try:
+        bin_count_raw = header["bin_count"]
+        msg = SpectrumFrameMsg(
+            node_id=header["node_id"],
+            session_id=header["session_id"],
+            stream_id=header["stream_id"],
+            config_version=header["config_version"],
+            frame_index=header["frame_index"],
+            timestamp_utc=header["timestamp_utc"],
+            payload=payload,
+            bin_count=bin_count_raw,
+        )
+    except KeyError as exc:
+        raise ProtocolError(
+            "INVALID_FRAME", f"binary frame header missing field: {exc}", fatal=False
+        ) from exc
+    if not isinstance(bin_count_raw, int) or isinstance(bin_count_raw, bool) or bin_count_raw <= 0:
+        raise ProtocolError(
+            "INVALID_FRAME",
+            f"binary frame header bin_count must be a positive int, got {bin_count_raw!r}",
+            fatal=False,
+        )
+    expected_len = bin_count_raw * 4
+    if len(payload) != expected_len:
+        raise ProtocolError(
+            "INVALID_FRAME",
+            f"binary frame payload length {len(payload)} != bin_count*4 ({expected_len})",
+            fatal=False,
+        )
+    return msg
 
 
 # ---------------------------------------------------------------------------
