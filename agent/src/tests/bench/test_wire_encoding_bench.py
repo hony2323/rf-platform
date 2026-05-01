@@ -185,7 +185,11 @@ async def _loopback_one(
             max_size=2**26,
         ) as client:
             # Warm-up — first frame usually pays JIT/buffer-alloc cost
-            wire = _encode_jb64(frame, codec) if encoding == "json_base64" else _encode_bin(frame)
+            wire = (
+                _encode_jb64(frame, codec)
+                if encoding == "json_base64"
+                else _encode_bin(frame)
+            )
             await client.send(wire)
             await client.recv()
 
