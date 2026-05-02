@@ -8,6 +8,10 @@ export interface SignupRequest {
   password: string;
 }
 
+export interface GoogleAuthRequest {
+  token: string;
+}
+
 export interface DeleteAccountRequest {
   password: string;
 }

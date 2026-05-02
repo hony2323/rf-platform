@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.deps import get_current_user, get_db
 from server.auth.browser_auth import make_session_cookie
-from server.auth.passwords import hash_password, verify_password
+from server.auth.google_auth import verify_google_token
+from server.auth.passwords import hash_password, validate_password_strength, verify_password
 from server.storage.models import User
 from server.storage.repositories import agents as agents_repo
 from server.storage.repositories import users as users_repo
@@ -25,6 +26,10 @@ class LoginRequest(BaseModel):
 class SignupRequest(BaseModel):
     email: str
     password: str
+
+
+class GoogleAuthRequest(BaseModel):
+    token: str = Field(min_length=1)
 
 
 class DeleteAccountRequest(BaseModel):
@@ -92,9 +97,39 @@ async def signup(
         raise HTTPException(status_code=409, detail="User limit reached for MVP")
     if len(body.email.strip()) < 3:
         raise HTTPException(status_code=422, detail="Email must be at least 3 characters")
-    if len(body.password) < 8:
-        raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
+    pw_error = validate_password_strength(body.password)
+    if pw_error:
+        raise HTTPException(status_code=422, detail=pw_error)
     user = await users_repo.create_user(db, body.email, hash_password(body.password))
+    _set_session_cookie(request, response, user.id)
+    return UserResponse.model_validate(user)
+
+
+@router.post("/auth/google")
+async def google_login(
+    body: GoogleAuthRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    settings = request.app.state.settings
+    if not settings.google_client_id:
+        raise HTTPException(status_code=501, detail="Google login not configured")
+    try:
+        payload = verify_google_token(body.token, settings.google_client_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    user = await users_repo.get_user_by_google_sub(db, payload.sub)
+    if user is None:
+        user = await users_repo.get_user_by_email(db, payload.email)
+        if user is not None:
+            await users_repo.link_google_sub(db, user.id, payload.sub)
+        else:
+            if await users_repo.count_users(db) >= MAX_USERS:
+                raise HTTPException(status_code=409, detail="User limit reached for MVP")
+            user = await users_repo.create_google_user(db, payload.email, payload.sub)
+
     _set_session_cookie(request, response, user.id)
     return UserResponse.model_validate(user)
 
@@ -117,6 +152,11 @@ async def delete_account(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if not current_user.password_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="Account uses Google sign-in — set a password before deleting via this endpoint",
+        )
     if not verify_password(body.password, current_user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 

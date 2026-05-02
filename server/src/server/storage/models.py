@@ -22,7 +22,9 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
-    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    # Empty string means Google-only user (no password set).
+    password_hash: Mapped[str] = mapped_column(String, nullable=False, default="")
+    google_sub: Mapped[str | None] = mapped_column(String, unique=True, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 

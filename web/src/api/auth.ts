@@ -1,6 +1,7 @@
 import { apiFetch } from "./client";
 import type {
   DeleteAccountRequest,
+  GoogleAuthRequest,
   LoginRequest,
   SignupRequest,
   UserResponse,
@@ -18,6 +19,15 @@ export function login(email: string, password: string): Promise<UserResponse> {
 export function signup(email: string, password: string): Promise<UserResponse> {
   const body: SignupRequest = { email, password };
   return apiFetch<UserResponse>("/auth/signup", {
+    method: "POST",
+    body: JSON.stringify(body),
+    redirectOnUnauthorized: false,
+  });
+}
+
+export function loginWithGoogle(token: string): Promise<UserResponse> {
+  const body: GoogleAuthRequest = { token };
+  return apiFetch<UserResponse>("/auth/google", {
     method: "POST",
     body: JSON.stringify(body),
     redirectOnUnauthorized: false,

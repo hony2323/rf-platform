@@ -23,6 +23,7 @@ This document tracks which implementation phases are done, in-progress, or pendi
 | 8 | Contract freeze | **Done** |
 | 9 | Operational polish | **Done** |
 | 10 | Agent wire v0.4 (binary spectrum_frame) | **Done** |
+| 11 | Google OAuth + strong passwords | **Done** |
 
 ---
 
@@ -243,3 +244,31 @@ This document tracks which implementation phases are done, in-progress, or pendi
 - Server → viewer wire is byte-identical to before (the relay's payload bytes path was already binary-out).
 - `json_base64` continues to work — existing v0.3 agents not yet upgraded keep streaming.
 - Per-message zlib `permessage-deflate` benchmarked and **rejected** for default — measured 40× p50 latency cost on localhost vs 16% wire saving on noise payloads. Available later if a deployment needs it.
+
+---
+
+## Phase 11 — Google OAuth + strong passwords ✓
+
+**Goal:** Users can sign in with Google; existing email/password auth is preserved; signup enforces strong passwords.
+
+### What exists
+
+| File | Purpose |
+|---|---|
+| `auth/google_auth.py` | `verify_google_token(token, client_id) → GoogleTokenPayload` — wraps `google.oauth2.id_token.verify_oauth2_token`; raises `ValueError` on invalid token or unverified email |
+| `auth/passwords.py` | Added `validate_password_strength(password) → str | None` — enforces min-8, uppercase, lowercase, digit |
+| `config/settings.py` | Added `google_client_id: str | None` read from `RF_GOOGLE_CLIENT_ID` env var (None = Google login disabled) |
+| `storage/models.py` | Added `google_sub: Mapped[str | None]` (unique, nullable); `password_hash` uses `""` sentinel for Google-only users |
+| `storage/db.py` | `_migrate()` adds `google_sub` column + unique index idempotently on existing databases |
+| `storage/repositories/users.py` | Added `create_google_user`, `get_user_by_google_sub`, `link_google_sub` |
+| `app/http_routes.py` | Added `POST /auth/google` endpoint; updated signup to use `validate_password_strength`; `DELETE /me` rejects Google-only accounts with 400 |
+| `pyproject.toml` | Added `google-auth>=2.0.0` and `requests>=2.28.0` dependencies |
+| `tests/unit/test_auth.py` | +16 tests: Google create/reuse/link/cap/me/disabled/invalid/unverified/delete-blocked; password strength unit tests; signup rejects no-uppercase, no-digit |
+
+### Key constraints upheld
+- Only `google_sub` (stable Google identity) is trusted; email/name are not trusted as identity
+- Google token verified server-side against `RF_GOOGLE_CLIENT_ID`; unverified email tokens rejected
+- Existing email user linked to Google by verified email on first Google login (no duplicate account)
+- Session cookie remains HttpOnly; same `itsdangerous` mechanism for Google logins
+- `google_client_id = None` → endpoint returns 501; Google button hidden in frontend
+- Tests mock `server.app.http_routes.verify_google_token` — no real Google calls in CI

@@ -11,8 +11,8 @@ export class ApiError extends Error {
 }
 
 export class UnauthorizedError extends ApiError {
-  constructor() {
-    super(401, "Unauthorized");
+  constructor(message = "Unauthorized") {
+    super(401, message);
     this.name = "UnauthorizedError";
   }
 }
@@ -86,8 +86,9 @@ export async function apiFetch<T>(
   if (res.status === 401) {
     if (redirectOnUnauthorized) {
       redirectToLogin();
+      throw new UnauthorizedError();
     }
-    throw new UnauthorizedError();
+    throw new UnauthorizedError(await extractErrorMessage(res));
   }
 
   if (!res.ok) {
