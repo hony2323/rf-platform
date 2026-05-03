@@ -256,19 +256,19 @@ This document tracks which implementation phases are done, in-progress, or pendi
 | File | Purpose |
 |---|---|
 | `auth/google_auth.py` | `verify_google_token(token, client_id) → GoogleTokenPayload` — wraps `google.oauth2.id_token.verify_oauth2_token`; raises `ValueError` on invalid token or unverified email |
-| `auth/passwords.py` | Added `validate_password_strength(password) → str | None` — enforces min-8, uppercase, lowercase, digit |
+| `auth/passwords.py` | Added `validate_password_strength(password) → str | None` — enforces min-10 chars, uppercase, lowercase, digit, symbol |
 | `config/settings.py` | Added `google_client_id: str | None` read from `RF_GOOGLE_CLIENT_ID` env var (None = Google login disabled) |
 | `storage/models.py` | Added `google_sub: Mapped[str | None]` (unique, nullable); `password_hash` uses `""` sentinel for Google-only users |
 | `storage/db.py` | `_migrate()` adds `google_sub` column + unique index idempotently on existing databases |
-| `storage/repositories/users.py` | Added `create_google_user`, `get_user_by_google_sub`, `link_google_sub` |
-| `app/http_routes.py` | Added `POST /auth/google` endpoint; updated signup to use `validate_password_strength`; `DELETE /me` rejects Google-only accounts with 400 |
+| `storage/repositories/users.py` | Added `create_google_user`, `get_user_by_google_sub`, `link_google_sub` (`link_google_sub` is unused — kept for future authenticated link flow) |
+| `app/http_routes.py` | Added `POST /auth/google`; signup uses `validate_password_strength`; `UserResponse` includes `has_password: bool`; `DELETE /me` allows Google-only users (no password required) |
 | `pyproject.toml` | Added `google-auth>=2.0.0` and `requests>=2.28.0` dependencies |
-| `tests/unit/test_auth.py` | +16 tests: Google create/reuse/link/cap/me/disabled/invalid/unverified/delete-blocked; password strength unit tests; signup rejects no-uppercase, no-digit |
+| `tests/unit/test_auth.py` | Google create/reuse/cap/me/disabled/invalid/unverified/delete; password strength unit tests; signup rejects weak passwords |
 
 ### Key constraints upheld
 - Only `google_sub` (stable Google identity) is trusted; email/name are not trusted as identity
 - Google token verified server-side against `RF_GOOGLE_CLIENT_ID`; unverified email tokens rejected
-- Existing email user linked to Google by verified email on first Google login (no duplicate account)
+- Google login with an email that already has a local password account is rejected with 409 — no auto-linking (prevents pre-account-takeover); a proper authenticated link flow is post-MVP
 - Session cookie remains HttpOnly; same `itsdangerous` mechanism for Google logins
 - `google_client_id = None` → endpoint returns 501; Google button hidden in frontend
 - Tests mock `server.app.http_routes.verify_google_token` — no real Google calls in CI
