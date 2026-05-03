@@ -108,15 +108,18 @@ WebSocket wire message types derived from server codec (`protocol/codec.py`):
 
 ---
 
-### Auth flow (Phase 4 — complete)
+### Auth flow (Phase 4 — complete; Phase 11 additions noted)
 
 | File | Purpose |
 |---|---|
-| `src/pages/LoginPage.tsx` | Email/password form; 401 → inline error; success → navigate to `/agents` |
+| `src/pages/LoginPage.tsx` | Email/password form + Google Sign-In button (conditional on `VITE_GOOGLE_CLIENT_ID`); signup mode shows confirm-password field and live password-strength checklist (min-10, uppercase, lowercase, digit, symbol); GSI script injected dynamically — not loaded when `VITE_GOOGLE_CLIENT_ID` is unset; 401 → inline error; success → navigate to `/agents` |
 | `src/components/ProtectedRoute.tsx` | Calls `getMe()`; loading spinner → unauthenticated redirect to `/login` → render children |
 | `src/hooks/useCurrentUser.ts` | TanStack Query hook wrapping `getMe()`; throws `UnauthorizedError` on 401 |
 | `src/pages/NotFoundPage.tsx` | Catch-all 404 page |
 | `src/app/router.tsx` | Routes: `/login`, `/agents`, `/agents/:agentId/live` (stub), `/agents/:agentId/tokens`, `*` → NotFoundPage |
+| `src/api/auth.ts` | Added `loginWithGoogle(token)` → `POST /auth/google`; `deleteAccount(password?)` accepts optional password (omitted for Google-only users) |
+| `src/types/api.ts` | Added `GoogleAuthRequest`; `UserResponse.has_password: boolean`; `DeleteAccountRequest.password` optional |
+| `src/vite-env.d.ts` | Added `VITE_GOOGLE_CLIENT_ID` env type + minimal Google GSI window type declarations |
 
 ---
 

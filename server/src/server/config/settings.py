@@ -13,6 +13,7 @@ class Settings:
     session_cookie_name: str
     session_cookie_secure: bool
     cors_origins: list[str]
+    google_client_id: str | None
 
 
 def load_settings() -> Settings:
@@ -32,6 +33,8 @@ def load_settings() -> Settings:
     cors_raw = os.getenv("RF_CORS_ORIGINS", "")
     cors_origins = [o.strip() for o in cors_raw.split(",") if o.strip()]
 
+    google_client_id_raw = os.getenv("RF_GOOGLE_CLIENT_ID", "").strip()
+
     return Settings(
         db_path=os.getenv("RF_DB_PATH", "rf_platform.db"),
         host=os.getenv("RF_HOST", "0.0.0.0"),
@@ -40,4 +43,5 @@ def load_settings() -> Settings:
         session_cookie_name=os.getenv("RF_SESSION_COOKIE_NAME", "session"),
         session_cookie_secure=secure,
         cors_origins=cors_origins,
+        google_client_id=google_client_id_raw or None,
     )
