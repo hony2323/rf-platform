@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.app.deps import get_current_user, get_db
 from server.auth.browser_auth import make_session_cookie
-from server.auth.passwords import hash_password, verify_password
+from server.auth.google_auth import verify_google_token
+from server.auth.passwords import hash_password, validate_password_strength, verify_password
 from server.storage.models import User
 from server.storage.repositories import agents as agents_repo
 from server.storage.repositories import users as users_repo
@@ -27,15 +28,24 @@ class SignupRequest(BaseModel):
     password: str
 
 
+class GoogleAuthRequest(BaseModel):
+    token: str = Field(min_length=1)
+
+
 class DeleteAccountRequest(BaseModel):
-    password: str = Field(min_length=1)
+    password: str | None = None
 
 
 class UserResponse(BaseModel):
     id: str
     email: str
+    has_password: bool = False
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_user(cls, user: User) -> UserResponse:
+        return cls(id=user.id, email=user.email, has_password=bool(user.password_hash))
 
 
 def _set_session_cookie(request: Request, response: Response, user_id: str) -> None:
@@ -75,7 +85,7 @@ async def login(
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     _set_session_cookie(request, response, user.id)
-    return UserResponse.model_validate(user)
+    return UserResponse.from_user(user)
 
 
 @router.post("/auth/signup", response_model=UserResponse, status_code=201)
@@ -92,11 +102,43 @@ async def signup(
         raise HTTPException(status_code=409, detail="User limit reached for MVP")
     if len(body.email.strip()) < 3:
         raise HTTPException(status_code=422, detail="Email must be at least 3 characters")
-    if len(body.password) < 8:
-        raise HTTPException(status_code=422, detail="Password must be at least 8 characters")
+    pw_error = validate_password_strength(body.password)
+    if pw_error:
+        raise HTTPException(status_code=422, detail=pw_error)
     user = await users_repo.create_user(db, body.email, hash_password(body.password))
     _set_session_cookie(request, response, user.id)
-    return UserResponse.model_validate(user)
+    return UserResponse.from_user(user)
+
+
+@router.post("/auth/google")
+async def google_login(
+    body: GoogleAuthRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    settings = request.app.state.settings
+    if not settings.google_client_id:
+        raise HTTPException(status_code=501, detail="Google login not configured")
+    try:
+        payload = verify_google_token(body.token, settings.google_client_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    user = await users_repo.get_user_by_google_sub(db, payload.sub)
+    if user is None:
+        existing = await users_repo.get_user_by_email(db, payload.email)
+        if existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this email already exists. Sign in with your password.",
+            )
+        if await users_repo.count_users(db) >= MAX_USERS:
+            raise HTTPException(status_code=409, detail="User limit reached for MVP")
+        user = await users_repo.create_google_user(db, payload.email, payload.sub)
+
+    _set_session_cookie(request, response, user.id)
+    return UserResponse.from_user(user)
 
 
 @router.post("/auth/logout", status_code=204)
@@ -117,8 +159,12 @@ async def delete_account(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not verify_password(body.password, current_user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if current_user.password_hash:
+        if not body.password:
+            raise HTTPException(status_code=422, detail="Password is required")
+        if not verify_password(body.password, current_user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Google-only users (no password_hash): authenticated session is sufficient.
 
     registry = getattr(request.app.state, "registry", None)
     owned_agents = await agents_repo.get_agents_for_user(db, current_user.id)

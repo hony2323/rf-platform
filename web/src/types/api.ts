@@ -8,13 +8,18 @@ export interface SignupRequest {
   password: string;
 }
 
+export interface GoogleAuthRequest {
+  token: string;
+}
+
 export interface DeleteAccountRequest {
-  password: string;
+  password?: string;
 }
 
 export interface UserResponse {
   id: string;
   email: string;
+  has_password: boolean;
 }
 
 export interface AgentResponse {

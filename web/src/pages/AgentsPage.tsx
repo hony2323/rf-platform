@@ -194,9 +194,11 @@ function AgentCard({ agent }: { agent: AgentResponse }) {
 
 function DeleteAccountDialog({
   email,
+  hasPassword,
   onClose,
 }: {
   email: string;
+  hasPassword: boolean;
   onClose: () => void;
 }) {
   const [password, setPassword] = useState("");
@@ -204,7 +206,7 @@ function DeleteAccountDialog({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { mutate, isPending, error } = useMutation({
-    mutationFn: () => deleteAccount(password),
+    mutationFn: () => deleteAccount(hasPassword ? password : undefined),
     onSuccess: async () => {
       queryClient.setQueryData(["me"], null);
       await queryClient.invalidateQueries({ queryKey: ["me"] });
@@ -212,7 +214,7 @@ function DeleteAccountDialog({
     },
   });
 
-  const canDelete = password.trim() !== "" && confirmation === "DELETE";
+  const canDelete = (!hasPassword || password.trim() !== "") && confirmation === "DELETE";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -224,20 +226,22 @@ function DeleteAccountDialog({
         </p>
 
         <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm text-gray-400" htmlFor="delete-password">
-              Password
-            </label>
-            <input
-              id="delete-password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-2xl border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-rose-400 focus:outline-none"
-              disabled={isPending}
-            />
-          </div>
+          {hasPassword && (
+            <div>
+              <label className="mb-1 block text-sm text-gray-400" htmlFor="delete-password">
+                Password
+              </label>
+              <input
+                id="delete-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full rounded-2xl border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-rose-400 focus:outline-none"
+                disabled={isPending}
+              />
+            </div>
+          )}
 
           <div>
             <label className="mb-1 block text-sm text-gray-400" htmlFor="delete-confirmation">
@@ -315,6 +319,7 @@ export function AgentsPage() {
       {showDeleteAccount && currentUser && (
         <DeleteAccountDialog
           email={currentUser.email}
+          hasPassword={currentUser.has_password}
           onClose={() => setShowDeleteAccount(false)}
         />
       )}
