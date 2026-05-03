@@ -39,8 +39,13 @@ class DeleteAccountRequest(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
+    has_password: bool = False
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_user(cls, user: User) -> UserResponse:
+        return cls(id=user.id, email=user.email, has_password=bool(user.password_hash))
 
 
 def _set_session_cookie(request: Request, response: Response, user_id: str) -> None:
@@ -80,7 +85,7 @@ async def login(
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     _set_session_cookie(request, response, user.id)
-    return UserResponse.model_validate(user)
+    return UserResponse.from_user(user)
 
 
 @router.post("/auth/signup", response_model=UserResponse, status_code=201)
@@ -102,7 +107,7 @@ async def signup(
         raise HTTPException(status_code=422, detail=pw_error)
     user = await users_repo.create_user(db, body.email, hash_password(body.password))
     _set_session_cookie(request, response, user.id)
-    return UserResponse.model_validate(user)
+    return UserResponse.from_user(user)
 
 
 @router.post("/auth/google")
@@ -131,7 +136,7 @@ async def google_login(
             user = await users_repo.create_google_user(db, payload.email, payload.sub)
 
     _set_session_cookie(request, response, user.id)
-    return UserResponse.model_validate(user)
+    return UserResponse.from_user(user)
 
 
 @router.post("/auth/logout", status_code=204)

@@ -19,6 +19,7 @@ export interface DeleteAccountRequest {
 export interface UserResponse {
   id: string;
   email: string;
+  has_password: boolean;
 }
 
 export interface AgentResponse {
