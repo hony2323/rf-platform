@@ -127,13 +127,15 @@ async def google_login(
 
     user = await users_repo.get_user_by_google_sub(db, payload.sub)
     if user is None:
-        user = await users_repo.get_user_by_email(db, payload.email)
-        if user is not None:
-            await users_repo.link_google_sub(db, user.id, payload.sub)
-        else:
-            if await users_repo.count_users(db) >= MAX_USERS:
-                raise HTTPException(status_code=409, detail="User limit reached for MVP")
-            user = await users_repo.create_google_user(db, payload.email, payload.sub)
+        existing = await users_repo.get_user_by_email(db, payload.email)
+        if existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="An account with this email already exists. Sign in with your password.",
+            )
+        if await users_repo.count_users(db) >= MAX_USERS:
+            raise HTTPException(status_code=409, detail="User limit reached for MVP")
+        user = await users_repo.create_google_user(db, payload.email, payload.sub)
 
     _set_session_cookie(request, response, user.id)
     return UserResponse.from_user(user)

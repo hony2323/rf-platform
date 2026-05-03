@@ -418,22 +418,18 @@ async def test_google_login_reuses_user_on_second_login(google_client: AsyncClie
     assert r1.json()["id"] == r2.json()["id"]
 
 
-async def test_google_login_links_existing_email_user(google_client: AsyncClient):
-    # Create a password-based user first.
+async def test_google_login_rejects_existing_email_user(google_client: AsyncClient):
+    # A pre-existing password account with the same email must not be auto-linked.
     engine = db_module._engine
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
-        existing = await users_repo.create_user(
-            session, "google@example.com", hash_password(STRONG_PW)
-        )
-    existing_id = existing.id
+        await users_repo.create_user(session, "google@example.com", hash_password(STRONG_PW))
 
     with patch("server.app.http_routes.verify_google_token", return_value=_GOOGLE_PAYLOAD):
         resp = await google_client.post("/auth/google", json={"token": "tok"})
 
-    assert resp.status_code == 200
-    # Same user, not a new one.
-    assert resp.json()["id"] == existing_id
+    assert resp.status_code == 409
+    assert "password" in resp.json()["detail"].lower()
 
 
 async def test_me_works_after_google_login(google_client: AsyncClient):
