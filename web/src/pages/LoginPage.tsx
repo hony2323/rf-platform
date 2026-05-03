@@ -77,9 +77,10 @@ export function LoginPage() {
       window.google.accounts.id.renderButton(googleButtonRef.current, {
         theme: "filled_black",
         size: "large",
-        width: "100%",
+        width: googleButtonRef.current.offsetWidth || 400,
         text: "continue_with",
         shape: "rectangular",
+        locale: "en",
       });
     };
 

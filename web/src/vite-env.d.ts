@@ -17,9 +17,10 @@ interface GoogleCredentialResponse {
 interface GoogleButtonOptions {
   theme?: "outline" | "filled_blue" | "filled_black";
   size?: "large" | "medium" | "small";
-  width?: string | number;
+  width?: number;
   text?: "signin_with" | "signup_with" | "continue_with" | "signin";
   shape?: "rectangular" | "pill" | "circle" | "square";
+  locale?: string;
 }
 
 interface GoogleAccountsId {
