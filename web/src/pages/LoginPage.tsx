@@ -11,6 +11,7 @@ interface PasswordStrength {
   hasUppercase: boolean;
   hasLowercase: boolean;
   hasDigit: boolean;
+  hasSymbol: boolean;
 }
 
 function StrengthItem({ ok, label }: { ok: boolean; label: string }) {
@@ -35,15 +36,18 @@ export function LoginPage() {
 
   const strength = useMemo<PasswordStrength>(
     () => ({
-      minLength: password.length >= 8,
+      minLength: password.length >= 10,
       hasUppercase: /[A-Z]/.test(password),
       hasLowercase: /[a-z]/.test(password),
       hasDigit: /\d/.test(password),
+      hasSymbol: /[^a-zA-Z0-9]/.test(password),
     }),
     [password],
   );
 
-  // Initialize Google Sign-In once on mount.
+  // Dynamically load the GSI script and initialize the button.
+  // Only runs when VITE_GOOGLE_CLIENT_ID is set — no third-party script
+  // is loaded for deployments that don't use Google login.
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return;
 
@@ -81,12 +85,22 @@ export function LoginPage() {
 
     if (window.google) {
       init();
-    } else {
-      const script = document.querySelector(
-        'script[src*="accounts.google.com"]',
-      ) as HTMLScriptElement | null;
-      script?.addEventListener("load", init);
+      return;
     }
+
+    const GSI_SRC = "https://accounts.google.com/gsi/client";
+    let script = document.querySelector(
+      `script[src="${GSI_SRC}"]`,
+    ) as HTMLScriptElement | null;
+    if (!script) {
+      script = document.createElement("script");
+      script.src = GSI_SRC;
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+    script.addEventListener("load", init);
+    return () => script?.removeEventListener("load", init);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSubmit(e: React.FormEvent) {
@@ -235,10 +249,11 @@ export function LoginPage() {
                   />
                   {mode === "signup" && (
                     <ul className="mt-2 space-y-1 pl-1">
-                      <StrengthItem ok={strength.minLength} label="At least 8 characters" />
+                      <StrengthItem ok={strength.minLength} label="At least 10 characters" />
                       <StrengthItem ok={strength.hasUppercase} label="At least one uppercase letter" />
                       <StrengthItem ok={strength.hasLowercase} label="At least one lowercase letter" />
                       <StrengthItem ok={strength.hasDigit} label="At least one digit" />
+                      <StrengthItem ok={strength.hasSymbol} label="At least one symbol (!@# etc.)" />
                     </ul>
                   )}
                 </div>

@@ -33,7 +33,7 @@ class GoogleAuthRequest(BaseModel):
 
 
 class DeleteAccountRequest(BaseModel):
-    password: str = Field(min_length=1)
+    password: str | None = None
 
 
 class UserResponse(BaseModel):
@@ -152,13 +152,12 @@ async def delete_account(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not current_user.password_hash:
-        raise HTTPException(
-            status_code=400,
-            detail="Account uses Google sign-in — set a password before deleting via this endpoint",
-        )
-    if not verify_password(body.password, current_user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if current_user.password_hash:
+        if not body.password:
+            raise HTTPException(status_code=422, detail="Password is required")
+        if not verify_password(body.password, current_user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Google-only users (no password_hash): authenticated session is sufficient.
 
     registry = getattr(request.app.state, "registry", None)
     owned_agents = await agents_repo.get_agents_for_user(db, current_user.id)

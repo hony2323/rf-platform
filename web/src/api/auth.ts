@@ -42,7 +42,7 @@ export function getMe(): Promise<UserResponse> {
   return apiFetch<UserResponse>("/me");
 }
 
-export function deleteAccount(password: string): Promise<void> {
+export function deleteAccount(password?: string): Promise<void> {
   const body: DeleteAccountRequest = { password };
   return apiFetch<void>("/me", {
     method: "DELETE",

@@ -5,10 +5,11 @@ import re
 import bcrypt
 
 _PASSWORD_RULES = [
-    (lambda p: len(p) >= 8, "at least 8 characters"),
+    (lambda p: len(p) >= 10, "at least 10 characters"),
     (lambda p: bool(re.search(r"[A-Z]", p)), "at least one uppercase letter"),
     (lambda p: bool(re.search(r"[a-z]", p)), "at least one lowercase letter"),
     (lambda p: bool(re.search(r"\d", p)), "at least one digit"),
+    (lambda p: bool(re.search(r"[^a-zA-Z0-9]", p)), "at least one symbol"),
 ]
 
 

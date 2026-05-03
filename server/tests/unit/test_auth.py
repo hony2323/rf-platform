@@ -14,7 +14,7 @@ from server.storage import models  # noqa: F401
 from server.storage.repositories import users as users_repo
 
 # Strong password used across tests that exercise the signup endpoint.
-STRONG_PW = "Secret123"
+STRONG_PW = "Secret1@23"
 
 
 @pytest.fixture(autouse=True)
@@ -323,29 +323,33 @@ async def test_tampered_cookie_rejected(client: AsyncClient):
 
 
 def test_password_strength_accepts_valid():
-    assert validate_password_strength("Secret123") is None
+    assert validate_password_strength("Secret1@23") is None
 
 
 def test_password_strength_rejects_short():
-    assert validate_password_strength("Sh0rt") is not None
+    assert validate_password_strength("Sec1@ab") is not None  # 7 chars
 
 
 def test_password_strength_rejects_no_uppercase():
-    assert validate_password_strength("secret123") is not None
+    assert validate_password_strength("secret1@23") is not None
 
 
 def test_password_strength_rejects_no_lowercase():
-    assert validate_password_strength("SECRET123") is not None
+    assert validate_password_strength("SECRET1@23") is not None
 
 
 def test_password_strength_rejects_no_digit():
-    assert validate_password_strength("SecretPass") is not None
+    assert validate_password_strength("SecretPass!") is not None
+
+
+def test_password_strength_rejects_no_symbol():
+    assert validate_password_strength("Secret12345") is not None  # 11 chars, no symbol
 
 
 async def test_signup_rejects_no_uppercase(client: AsyncClient):
     resp = await client.post(
         "/auth/signup",
-        json={"email": "u@example.com", "password": "secret123"},
+        json={"email": "u@example.com", "password": "secret1@23"},
     )
     assert resp.status_code == 422
 
@@ -353,7 +357,15 @@ async def test_signup_rejects_no_uppercase(client: AsyncClient):
 async def test_signup_rejects_no_digit(client: AsyncClient):
     resp = await client.post(
         "/auth/signup",
-        json={"email": "u@example.com", "password": "SecretPass"},
+        json={"email": "u@example.com", "password": "SecretPass!"},
+    )
+    assert resp.status_code == 422
+
+
+async def test_signup_rejects_no_symbol(client: AsyncClient):
+    resp = await client.post(
+        "/auth/signup",
+        json={"email": "u@example.com", "password": "SecretPass1"},
     )
     assert resp.status_code == 422
 
@@ -444,8 +456,18 @@ async def test_google_login_respects_user_cap(google_client: AsyncClient):
     assert resp.status_code == 409
 
 
-async def test_delete_account_blocked_for_google_only_user(google_client: AsyncClient):
+async def test_delete_google_only_account_success(google_client: AsyncClient):
     with patch("server.app.http_routes.verify_google_token", return_value=_GOOGLE_PAYLOAD):
         await google_client.post("/auth/google", json={"token": "tok"})
-    resp = await google_client.request("DELETE", "/me", json={"password": "anything"})
-    assert resp.status_code == 400
+    resp = await google_client.request("DELETE", "/me", json={})
+    assert resp.status_code == 204
+    assert (await google_client.get("/me")).status_code == 401
+
+
+async def test_delete_account_requires_password_for_password_users(
+    client: AsyncClient, registered_user
+):
+    email, password = registered_user
+    await client.post("/auth/login", json={"email": email, "password": password})
+    resp = await client.request("DELETE", "/me", json={})  # no password field
+    assert resp.status_code == 422

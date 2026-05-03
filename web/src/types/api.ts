@@ -13,7 +13,7 @@ export interface GoogleAuthRequest {
 }
 
 export interface DeleteAccountRequest {
-  password: string;
+  password?: string;
 }
 
 export interface UserResponse {
