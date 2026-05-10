@@ -246,8 +246,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="TYPE",
         default=None,
         choices=["simulator", "rtl-sdr"],
-        help='Source type: "simulator" (default) or "rtl-sdr".  '
-        "(config: source.type)",
+        help='Source type: "simulator" (default) or "rtl-sdr".  (config: source.type)',
     )
     g.add_argument(
         "--rtlsdr-device-index",
@@ -324,9 +323,7 @@ def _resolve_connect(
     rate_limit_msps: float | None = _pick(
         args.rate_limit_msps, _get(file_cfg, "source", "rate_limit_msps")
     )
-    source_type: str | None = _pick(
-        args.source, _get(file_cfg, "source", "type")
-    )
+    source_type: str | None = _pick(args.source, _get(file_cfg, "source", "type"))
     rtlsdr_device_index = int(
         _pick(args.rtlsdr_device_index, _get(file_cfg, "source", "device_index"), 0)
     )
@@ -364,8 +361,7 @@ def _resolve_connect(
     if source_type == "rtl-sdr":
         if freq is None:
             raise SystemExit(
-                "--freq is required for rtl-sdr "
-                "(specify the centre frequency in Hz)"
+                "--freq is required for rtl-sdr (specify the centre frequency in Hz)"
             )
         center_hz = int(freq)
         rtlsdr_sample_rate = int(

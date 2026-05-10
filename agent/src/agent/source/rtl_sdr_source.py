@@ -109,8 +109,6 @@ class RTLSDRSource:
         chunk = self._chunk_samples
 
         while True:
-            complex_samples = await loop.run_in_executor(
-                None, sdr.read_samples, chunk
-            )
+            complex_samples = await loop.run_in_executor(None, sdr.read_samples, chunk)
             arr = np.asarray(complex_samples, dtype=np.complex64)
             await output.put(arr.view(np.float32).tobytes())
