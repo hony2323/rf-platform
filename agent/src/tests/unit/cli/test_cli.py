@@ -22,6 +22,10 @@ def _minimal_args(**kwargs: object) -> argparse.Namespace:
         "fft_size": None,
         "sample_rate": None,
         "freq": None,
+        "source": None,
+        "rtlsdr_device_index": None,
+        "rtlsdr_gain": None,
+        "rtlsdr_chunk_samples": None,
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
