@@ -1,0 +1,102 @@
+version: "3"
+
+tasks:
+  default:
+    cmds:
+      - task --list
+    silent: true
+
+  # ── Setup ──────────────────────────────────────────────────────────────────
+
+  setup:
+    desc: Install all packages (agent + server)
+    deps: [setup:agent, setup:server]
+
+  setup:agent:
+    desc: Sync agent venv with dev dependencies
+    dir: agent
+    cmds:
+      - uv sync --extra dev
+
+  setup:agent:sdr:
+    desc: Sync agent venv with dev + RTL-SDR hardware support
+    dir: agent
+    cmds:
+      - uv sync --extra dev --extra sdr
+
+  setup:server:
+    desc: Sync server venv with dev dependencies
+    dir: server
+    cmds:
+      - uv sync --extra dev
+
+  setup:web:
+    desc: Install web frontend dependencies
+    dir: web
+    cmds:
+      - npm install
+
+  # ── Dev servers ────────────────────────────────────────────────────────────
+
+  dev:server:
+    desc: Run the FastAPI server in reload mode
+    dir: server
+    cmds:
+      - uv run uvicorn server.app.api:create_app --factory --reload --host 0.0.0.0 --port 8000
+
+  dev:web:
+    desc: Run the Vite dev server
+    dir: web
+    cmds:
+      - npm run dev
+
+  # ── Tests ──────────────────────────────────────────────────────────────────
+
+  test:
+    desc: Run all tests (agent + server)
+    deps: [test:agent, test:server]
+
+  test:agent:
+    desc: Run agent unit tests (skip integration)
+    dir: agent
+    cmds:
+      - uv run pytest -m "not integration"
+
+  test:agent:all:
+    desc: Run all agent tests including integration
+    dir: agent
+    cmds:
+      - uv run pytest
+
+  test:server:
+    desc: Run server tests
+    dir: server
+    cmds:
+      - uv run pytest
+
+  # ── Lint & format ──────────────────────────────────────────────────────────
+
+  lint:
+    desc: Lint agent and server
+    deps: [lint:agent, lint:server]
+
+  lint:agent:
+    desc: Lint agent source
+    dir: agent
+    cmds:
+      - uv run ruff check src/
+      - uv run ruff format src/
+
+  lint:server:
+    desc: Lint server source
+    dir: server
+    cmds:
+      - uv run ruff check src/
+
+  # ── Type check ─────────────────────────────────────────────────────────────
+
+  typecheck:
+    desc: Run mypy on agent
+    dir: agent
+    cmds:
+      - uv run mypy src/agent

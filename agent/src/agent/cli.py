@@ -269,7 +269,8 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="rtlsdr_chunk_samples",
         metavar="N",
         default=None,
-        help="RTL-SDR samples per read call (default: 8192).  "
+        help="RTL-SDR samples per read call. Default: matches --fft-size, so "
+        "one chunk produces one FFT frame and --fps maps directly to frames/sec.  "
         "(config: source.chunk_samples)",
     )
 
@@ -334,7 +335,7 @@ def _resolve_connect(
         _pick(
             args.rtlsdr_chunk_samples,
             _get(file_cfg, "source", "chunk_samples"),
-            8192,
+            fft_size,
         )
     )
 
@@ -381,6 +382,7 @@ def _resolve_connect(
         _rtlsdr_di = rtlsdr_device_index
         _rtlsdr_gain = rtlsdr_gain
         _rtlsdr_chunk = rtlsdr_chunk_samples
+        _rtlsdr_fps = float(fps) if fps is not None else 10.0
 
         def _make_rtlsdr_source(agent_cfg: AgentConfig) -> IQSource:
             return RTLSDRSource(
@@ -389,6 +391,7 @@ def _resolve_connect(
                 device_index=_rtlsdr_di,
                 gain=_rtlsdr_gain,
                 chunk_samples=_rtlsdr_chunk,
+                fps=_rtlsdr_fps,
             )
 
         make_source = _make_rtlsdr_source
@@ -553,8 +556,20 @@ def _connect(args: argparse.Namespace) -> None:
     else:
         effective_rl = None
 
-    logical_fps = iq.sample_rate_hz / fft_size
-    disp_fps = (effective_rl * 1e6 / fft_size) if effective_rl else logical_fps
+    if source_label.startswith("rtl-sdr"):
+        # RTLSDRSource throttles itself: fps = chunks emitted per second.
+        # Each chunk produces (chunk_samples / fft_size) FFT frames.
+        # chunk_samples defaults to fft_size, so by default fps == frames/sec.
+        rtlsdr_fps = float(fps_arg) if fps_arg is not None else 10.0
+        rtlsdr_chunk = int(_pick(
+            getattr(args, "rtlsdr_chunk_samples", None),
+            _get(file_cfg, "source", "chunk_samples"),
+            fft_size,
+        ))
+        disp_fps = rtlsdr_fps * rtlsdr_chunk / fft_size
+    else:
+        logical_fps = iq.sample_rate_hz / fft_size
+        disp_fps = (effective_rl * 1e6 / fft_size) if effective_rl else logical_fps
     print(
         f"rf-agent {_VERSION}\n"
         f"  source     = {source_label}\n"

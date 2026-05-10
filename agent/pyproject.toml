@@ -30,7 +30,7 @@ rf-agent = "agent.cli:main"
 
 [project.optional-dependencies]
 sdr = [
-    "pyrtlsdr>=0.3.0",
+    "pyrtlsdr>=0.4.0",
 ]
 dev = [
     "pytest>=8.0",
