@@ -93,6 +93,13 @@ tasks:
     cmds:
       - uv run ruff check src/
 
+  # ── USB / RTL-SDR ──────────────────────────────────────────────────────────
+
+  usb:attach:
+    desc: Attach the RTL-SDR dongle to WSL via usbipd-win (run after replug)
+    cmds:
+      - scripts/attach-rtlsdr.sh
+
   # ── Type check ─────────────────────────────────────────────────────────────
 
   typecheck:

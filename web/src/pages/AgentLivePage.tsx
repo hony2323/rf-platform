@@ -13,7 +13,7 @@ import type { AgentResponse } from "../types/api";
 export function AgentLivePage() {
   const { agentId } = useParams<{ agentId: string }>();
   const [dbfsFloor, setDbfsFloor] = useState(-120);
-  const [dbfsCeiling, setDbfsCeiling] = useState(-50);
+  const [dbfsCeiling, setDbfsCeiling] = useState(-20);
 
   const agentQuery = useQuery<AgentResponse, Error>({
     queryKey: ["agent", agentId],
