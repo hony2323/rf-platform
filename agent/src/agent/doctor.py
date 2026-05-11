@@ -120,11 +120,15 @@ def check_libusb(plat: str) -> Check:
                 remedy="brew install libusb   # or: rf-agent setup macos",
             )
         if plat == "windows":
+            # libusb-1.0.dll is normally bundled inside pyrtlsdrlib's package
+            # directory on Windows, not on system PATH. The pyrtlsdr import +
+            # device-open checks below will catch a genuinely missing libusb,
+            # so this isn't worth a WARN that suggests running Zadig (which
+            # has nothing to do with libusb anyway).
             return Check(
                 "libusb-1.0",
-                Status.WARN,
-                "DLL not on PATH (often bundled inside librtlsdr.dll)",
-                remedy="Run Zadig to install the WinUSB driver: rf-agent setup windows",
+                Status.INFO,
+                "bundled with librtlsdr (not on system PATH — normal on Windows)",
             )
         return Check("libusb-1.0", Status.WARN, "find_library returned None")
     try:

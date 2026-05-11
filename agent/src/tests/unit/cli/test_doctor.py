@@ -129,12 +129,16 @@ def test_check_libusb_missing_macos_suggests_brew() -> None:
     assert "brew" in c.remedy.lower()
 
 
-def test_check_libusb_missing_windows_suggests_zadig() -> None:
+def test_check_libusb_windows_no_path_is_info_not_warn() -> None:
+    """On Windows, libusb-1.0.dll is bundled inside pyrtlsdrlib's package
+    directory rather than on system PATH. Not finding it via find_library
+    is the normal case and shouldn't generate a WARN with a misleading
+    'run Zadig' remedy — Zadig is for the WinUSB *driver*, not libusb."""
     with patch("agent.doctor.ctypes.util.find_library", return_value=None):
         c = check_libusb("windows")
-    assert c.status is Status.WARN
-    assert c.remedy is not None
-    assert "zadig" in c.remedy.lower() or "winusb" in c.remedy.lower()
+    assert c.status is Status.INFO
+    assert c.remedy is None
+    assert "bundled" in c.detail.lower()
 
 
 def test_check_libusb_found_and_loadable() -> None:
