@@ -219,12 +219,69 @@ def test_check_udev_rules_present(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_check_plugdev_user_is_member() -> None:
-    fake_group = type("G", (), {"gr_mem": ["alice", "bob"]})
+_PLUGDEV_GID = 46  # arbitrary; what matters is consistency within each test
+
+
+def _fake_grp(members: list[str]) -> ModuleType:
+    """Build a stand-in `grp` module that returns a struct-like group entry."""
+
+    class _Group:
+        gr_gid = _PLUGDEV_GID
+        gr_mem = members
+
+    mod = ModuleType("grp")
+    mod.getgrnam = lambda _name: _Group  # type: ignore[attr-defined]
+    return mod
+
+
+def _fake_pwd(primary_gid: int) -> ModuleType:
+    """Build a stand-in `pwd` module that reports the given primary gid."""
+
+    class _Pwd:
+        pw_gid = primary_gid
+
+    mod = ModuleType("pwd")
+    mod.getpwnam = lambda _name: _Pwd  # type: ignore[attr-defined]
+    return mod
+
+
+def test_check_plugdev_supplementary_member_is_ok() -> None:
+    """Case 3: user listed in gr_mem (typical post-usermod, post-relogin)."""
     with (
         patch("agent.doctor.os.environ", {"USER": "alice"}),
+        patch("agent.doctor.os.getgroups", return_value=[]),
         patch.dict(
-            "sys.modules", {"grp": type("M", (), {"getgrnam": lambda _: fake_group})}
+            sys.modules,
+            {"grp": _fake_grp(["alice", "bob"]), "pwd": _fake_pwd(primary_gid=1000)},
+        ),
+    ):
+        c = check_plugdev()
+    assert c.status is Status.OK
+    assert "alice" in c.detail
+
+
+def test_check_plugdev_primary_group_is_ok() -> None:
+    """Case 2: plugdev is the user's primary group, even if not in gr_mem."""
+    with (
+        patch("agent.doctor.os.environ", {"USER": "alice"}),
+        patch("agent.doctor.os.getgroups", return_value=[]),
+        patch.dict(
+            sys.modules,
+            {"grp": _fake_grp([]), "pwd": _fake_pwd(primary_gid=_PLUGDEV_GID)},
+        ),
+    ):
+        c = check_plugdev()
+    assert c.status is Status.OK
+
+
+def test_check_plugdev_in_effective_groups_is_ok() -> None:
+    """Case 1: plugdev gid is in the running process's getgroups()."""
+    with (
+        patch("agent.doctor.os.environ", {"USER": "alice"}),
+        patch("agent.doctor.os.getgroups", return_value=[_PLUGDEV_GID]),
+        patch.dict(
+            sys.modules,
+            {"grp": _fake_grp([]), "pwd": _fake_pwd(primary_gid=1000)},
         ),
     ):
         c = check_plugdev()
@@ -232,11 +289,15 @@ def test_check_plugdev_user_is_member() -> None:
 
 
 def test_check_plugdev_user_not_member_suggests_usermod() -> None:
-    fake_group = type("G", (), {"gr_mem": ["someone-else"]})
     with (
         patch("agent.doctor.os.environ", {"USER": "alice"}),
+        patch("agent.doctor.os.getgroups", return_value=[]),
         patch.dict(
-            "sys.modules", {"grp": type("M", (), {"getgrnam": lambda _: fake_group})}
+            sys.modules,
+            {
+                "grp": _fake_grp(["someone-else"]),
+                "pwd": _fake_pwd(primary_gid=1000),
+            },
         ),
     ):
         c = check_plugdev()
@@ -249,11 +310,29 @@ def test_check_plugdev_group_missing_returns_info() -> None:
     def raise_keyerror(_: str) -> None:
         raise KeyError("plugdev")
 
-    with patch.dict(
-        "sys.modules", {"grp": type("M", (), {"getgrnam": raise_keyerror})}
-    ):
+    fake_grp = ModuleType("grp")
+    fake_grp.getgrnam = raise_keyerror  # type: ignore[attr-defined]
+    with patch.dict(sys.modules, {"grp": fake_grp}):
         c = check_plugdev()
     assert c.status is Status.INFO
+
+
+def test_check_plugdev_sudo_user_overrides_user() -> None:
+    """Under sudo, USER='root' but we want to check the original invoker."""
+    with (
+        patch(
+            "agent.doctor.os.environ",
+            {"USER": "root", "SUDO_USER": "alice"},
+        ),
+        patch("agent.doctor.os.getgroups", return_value=[]),
+        patch.dict(
+            sys.modules,
+            {"grp": _fake_grp(["alice"]), "pwd": _fake_pwd(primary_gid=1000)},
+        ),
+    ):
+        c = check_plugdev()
+    assert c.status is Status.OK
+    assert "alice" in c.detail
 
 
 # ---------------------------------------------------------------------------

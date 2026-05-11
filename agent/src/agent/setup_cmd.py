@@ -61,9 +61,28 @@ _ZADIG_FALLBACK_HOMEPAGE = "https://zadig.akeo.ie"
 # ---------------------------------------------------------------------------
 
 
-def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _run(cmd: list[str], *, label: str | None = None) -> int:
+    """Run a subprocess and return its exit code.
+
+    Never raises: missing binaries, OS errors, and non-zero exit codes are all
+    reported as actionable one-line messages to stderr. Callers check the
+    returned code and bail early on non-zero.
+    """
     print(f"  $ {' '.join(cmd)}")
-    return subprocess.run(cmd, check=check, text=True)
+    try:
+        r = subprocess.run(cmd, text=True)
+    except FileNotFoundError:
+        print(f"Error: command not found: {cmd[0]}", file=sys.stderr)
+        return 127
+    except OSError as e:
+        print(f"Error running {cmd[0]}: {e}", file=sys.stderr)
+        return 1
+    if r.returncode != 0:
+        print(
+            f"Error: {label or cmd[0]} exited with code {r.returncode}",
+            file=sys.stderr,
+        )
+    return r.returncode
 
 
 def _has_apt() -> bool:
@@ -117,38 +136,81 @@ def setup_linux() -> int:
     else:
         print("[libusb] installing...")
         if _has_apt():
-            _run([*sudo, "apt-get", "update", "-y"])
-            _run([*sudo, "apt-get", "install", "-y", "libusb-1.0-0"])
+            rc = _run([*sudo, "apt-get", "update", "-y"], label="apt-get update")
+            if rc != 0:
+                return rc
+            rc = _run(
+                [*sudo, "apt-get", "install", "-y", "libusb-1.0-0"],
+                label="apt-get install libusb-1.0-0",
+            )
         elif _has_dnf():
-            _run([*sudo, "dnf", "install", "-y", "libusbx"])
+            rc = _run(
+                [*sudo, "dnf", "install", "-y", "libusbx"], label="dnf install libusbx"
+            )
         elif _has_pacman():
-            _run([*sudo, "pacman", "-S", "--noconfirm", "libusb"])
+            rc = _run(
+                [*sudo, "pacman", "-S", "--noconfirm", "libusb"],
+                label="pacman -S libusb",
+            )
         elif _has_zypper():
-            _run([*sudo, "zypper", "install", "-y", "libusb-1_0-0"])
+            rc = _run(
+                [*sudo, "zypper", "install", "-y", "libusb-1_0-0"],
+                label="zypper install libusb-1_0-0",
+            )
         else:
             print(
-                "Error: no supported package manager (apt/dnf/pacman/zypper) found.",
+                "Error: no supported package manager (apt/dnf/pacman/zypper) "
+                "found on this system.\n"
+                "Install libusb-1.0 manually for your distro, then re-run:\n"
+                "  rf-agent setup linux",
                 file=sys.stderr,
             )
             return 1
+        if rc != 0:
+            return rc
 
     # 2. udev rules
     existing = Path(UDEV_RULES_PATH)
-    if existing.exists() and existing.read_text() == UDEV_RULES_TEXT:
+    try:
+        already_installed = (
+            existing.exists() and existing.read_text() == UDEV_RULES_TEXT
+        )
+    except OSError:
+        already_installed = False
+    if already_installed:
         print(f"[udev] rules already installed at {UDEV_RULES_PATH}.")
     else:
         print(f"[udev] installing rules to {UDEV_RULES_PATH}...")
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".rules", delete=False
-        ) as tmp:
-            tmp.write(UDEV_RULES_TEXT)
-            tmp_path = tmp.name
+        tmp_path: str | None = None
         try:
-            _run([*sudo, "install", "-m", "0644", tmp_path, UDEV_RULES_PATH])
-            _run([*sudo, "udevadm", "control", "--reload-rules"])
-            _run([*sudo, "udevadm", "trigger"])
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".rules", delete=False
+            ) as tmp:
+                tmp.write(UDEV_RULES_TEXT)
+                tmp_path = tmp.name
+            rc = _run(
+                [*sudo, "install", "-m", "0644", tmp_path, UDEV_RULES_PATH],
+                label="install udev rules",
+            )
+            if rc != 0:
+                return rc
+            rc = _run(
+                [*sudo, "udevadm", "control", "--reload-rules"],
+                label="udevadm control --reload-rules",
+            )
+            if rc != 0:
+                return rc
+            rc = _run([*sudo, "udevadm", "trigger"], label="udevadm trigger")
+            if rc != 0:
+                return rc
         finally:
-            os.unlink(tmp_path)
+            if tmp_path is not None:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    # File may have been moved by `install`, or otherwise gone;
+                    # nothing left to clean up.
+                    pass
 
     # 3. plugdev membership
     user = (
@@ -169,13 +231,20 @@ def setup_linux() -> int:
             members = grp.getgrnam("plugdev").gr_mem
         except KeyError:
             print("[plugdev] group missing; creating it.")
-            _run([*sudo, "groupadd", "plugdev"])
+            rc = _run([*sudo, "groupadd", "plugdev"], label="groupadd plugdev")
+            if rc != 0:
+                return rc
             members = []
         if user in members:
             print(f"[plugdev] user '{user}' is already a member.")
         else:
             print(f"[plugdev] adding '{user}' to plugdev...")
-            _run([*sudo, "usermod", "-aG", "plugdev", user])
+            rc = _run(
+                [*sudo, "usermod", "-aG", "plugdev", user],
+                label=f"usermod -aG plugdev {user}",
+            )
+            if rc != 0:
+                return rc
             print(
                 "  -> log out and back in (or run `newgrp plugdev`) "
                 "for this to take effect."
@@ -214,7 +283,9 @@ def setup_macos() -> int:
         print("[libusb] already installed.")
     else:
         print("[libusb] installing via Homebrew...")
-        _run(["brew", "install", "libusb"])
+        rc = _run(["brew", "install", "libusb"], label="brew install libusb")
+        if rc != 0:
+            return rc
 
     print()
     print("Done. Plug in your RTL-SDR and run:")

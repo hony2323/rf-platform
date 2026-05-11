@@ -136,9 +136,19 @@ symbols. It runs once on the first `RTLSDRSource.start()` call. The agent
 never *calls* these functions (GPIO + dithering control we don't need), so
 the stubs are inert.
 
-### USB throttling
+### USB throttling and backpressure
 
 `RTLSDRSource` sleeps `1/fps` between reads. The hardware buffer overruns —
 that's expected, we just keep the latest snapshot. Default `--fps 10` means
 ~10 FFT frames/sec when `--rtlsdr-chunk-samples` is left at its default
 (equal to `--fft-size`, i.e. one chunk = one frame).
+
+`--fps` is currently capped at **10** on the free tier. Premium-tier accounts
+may exceed this in the future; the cap is enforced at the CLI entry point
+(`agent/cli.py::MAX_FPS_FREE_TIER`).
+
+The source emits to its output queue with **latest-frame-wins** semantics: if
+the consumer can't keep up and the queue is full, the oldest pending frame
+is dropped before the new one is enqueued. This prevents memory growth under
+slow consumers and ensures the hardware loop never blocks. Drops are visible
+via `RTLSDRSource.frames_dropped`.

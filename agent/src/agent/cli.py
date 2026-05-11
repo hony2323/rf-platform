@@ -71,6 +71,10 @@ _DEFAULT_CONFIG_PATHS = [
     Path.home() / ".rf-agent" / "config.toml",
 ]
 
+# Free-tier ceiling on the FPS knob. Premium-tier accounts will be allowed to
+# exceed this in the future; for now we enforce it here at the CLI entry point.
+MAX_FPS_FREE_TIER = 10.0
+
 
 class _TomlModule(Protocol):
     def load(self, fp: BinaryIO, /) -> object: ...
@@ -211,8 +215,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         metavar="N",
         default=None,
-        help="Target frames per second  (config: source.fps). "
-        "Mutually exclusive with --rate-limit-msps.",
+        help=(
+            "Target frames per second  (config: source.fps). "
+            f"Free-tier maximum: {MAX_FPS_FREE_TIER:.0f}. "
+            "Premium members may exceed this. "
+            "Mutually exclusive with --rate-limit-msps."
+        ),
     )
     g.add_argument(
         "--rate-limit-msps",
@@ -327,6 +335,19 @@ def _resolve_connect(
 
     file_arg: str | None = _pick(args.file, _get(file_cfg, "source", "file"))
     fps: float | None = _pick(args.fps, _get(file_cfg, "source", "fps"))
+    if fps is not None:
+        try:
+            fps = float(fps)
+        except (TypeError, ValueError) as exc:
+            raise SystemExit(f"Invalid fps value: {fps!r}") from exc
+        if fps <= 0:
+            raise SystemExit(f"fps must be > 0; got {fps}")
+        if fps > MAX_FPS_FREE_TIER:
+            raise SystemExit(
+                f"fps capped at {MAX_FPS_FREE_TIER:.0f} on the free tier "
+                f"(got {fps}). Premium members may exceed this — "
+                "contact support to upgrade."
+            )
     rate_limit_msps: float | None = _pick(
         args.rate_limit_msps, _get(file_cfg, "source", "rate_limit_msps")
     )

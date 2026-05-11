@@ -228,6 +228,140 @@ async def test_run_cancels_cleanly() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Robust shutdown / cancellation semantics
+# ---------------------------------------------------------------------------
+
+
+async def test_stop_is_idempotent() -> None:
+    """Calling stop() twice must not raise and must leave the device closed."""
+    src, hw = _make_source()
+    await src.start()
+    await src.stop()
+    await src.stop()  # second call: must be a no-op
+    assert hw.closed is True
+
+
+async def test_stop_during_run_exits_loop() -> None:
+    """stop() called while run() is active must cause run() to return cleanly."""
+    src, _ = _make_source()
+    await src.start()
+    q: asyncio.Queue[bytes] = asyncio.Queue()
+    task = asyncio.create_task(src.run(q))
+    # Wait until at least one chunk has been produced.
+    await asyncio.wait_for(q.get(), timeout=5.0)
+    await src.stop()
+    # run() should return (not raise CancelledError, since we used stop()
+    # not cancel()).
+    await asyncio.wait_for(task, timeout=5.0)
+
+
+async def test_read_samples_exception_propagates_when_not_stopped() -> None:
+    """A genuine read error (not a close-race) must propagate."""
+
+    class _Boom(FakeRtlSdr):
+        def read_samples(self, n: int) -> np.ndarray:
+            raise RuntimeError("USB pipe broken")
+
+    boom = _Boom()
+    src, _ = _make_source(fake=boom)
+    await src.start()
+    q: asyncio.Queue[bytes] = asyncio.Queue()
+    with pytest.raises(RuntimeError, match="USB pipe broken"):
+        await src.run(q)
+
+
+async def test_read_samples_exception_after_stop_is_swallowed() -> None:
+    """A read error that happens *after* stop() set _stopped is treated as
+    expected close-race noise, not propagated."""
+
+    class _RaceySdr(FakeRtlSdr):
+        def __init__(self) -> None:
+            super().__init__()
+            # Once told to fail, every subsequent read raises.
+            self.should_raise = False
+
+        def read_samples(self, n: int) -> np.ndarray:
+            if self.should_raise:
+                raise OSError("device disappeared")
+            return super().read_samples(n)
+
+    hw = _RaceySdr()
+    src, _ = _make_source(fake=hw)
+    await src.start()
+    q: asyncio.Queue[bytes] = asyncio.Queue()
+
+    async def trigger_stop_then_fail() -> None:
+        await asyncio.wait_for(q.get(), timeout=5.0)
+        hw.should_raise = True
+        await src.stop()
+
+    asyncio.create_task(trigger_stop_then_fail())
+    # Must NOT raise — stop() was called, the OSError is shutdown noise.
+    await asyncio.wait_for(src.run(q), timeout=5.0)
+
+
+# ---------------------------------------------------------------------------
+# Backpressure (latest-frame-wins)
+# ---------------------------------------------------------------------------
+
+
+async def test_full_queue_drops_oldest() -> None:
+    """When the consumer doesn't drain, the source evicts oldest frames so
+    the queue can keep advancing — no unbounded growth, no producer block."""
+    src, _ = _make_source(chunk=_CHUNK)
+    await src.start()
+    q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=2)
+
+    task = asyncio.create_task(src.run(q))
+    # Don't consume. Wait long enough for several chunks to be produced.
+    # fps=10 default ⇒ sleep_per_chunk = 0.1s.
+    await asyncio.sleep(0.55)
+    await src.stop()
+    await asyncio.wait_for(task, timeout=5.0)
+
+    # Queue never exceeded its maxsize.
+    assert q.qsize() <= 2
+    # At least one frame was dropped (we produced > 2 in 0.55s).
+    assert src.frames_dropped >= 1
+
+
+async def test_streaming_continues_under_pressure() -> None:
+    """Even after the queue fills repeatedly, the source keeps producing."""
+    src, _ = _make_source(chunk=_CHUNK)
+    await src.start()
+    q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1)
+
+    task = asyncio.create_task(src.run(q))
+    # Consume slowly: one frame every 0.2s while source produces ~10/sec.
+    consumed: list[bytes] = []
+    for _ in range(3):
+        consumed.append(await asyncio.wait_for(q.get(), timeout=5.0))
+        await asyncio.sleep(0.2)
+
+    await src.stop()
+    await asyncio.wait_for(task, timeout=5.0)
+
+    assert len(consumed) == 3
+    assert all(len(b) == _CHUNK * 8 for b in consumed)
+    # Pressure observed: we slept after every get, so many frames were dropped.
+    assert src.frames_dropped > 0
+
+
+async def test_empty_queue_no_drops() -> None:
+    """When the consumer keeps up, frames_dropped stays at 0."""
+    src, _ = _make_source(chunk=_CHUNK)
+    await src.start()
+    q: asyncio.Queue[bytes] = asyncio.Queue()  # unbounded
+    task = asyncio.create_task(src.run(q))
+    # Read a few frames quickly so the queue stays nearly empty.
+    for _ in range(3):
+        await asyncio.wait_for(q.get(), timeout=5.0)
+    await src.stop()
+    await asyncio.wait_for(task, timeout=5.0)
+    assert src.frames_dropped == 0
+
+
+# ---------------------------------------------------------------------------
 # Integration-ish: bytes from RTLSDRSource parse through parse_iq correctly
 # ---------------------------------------------------------------------------
 

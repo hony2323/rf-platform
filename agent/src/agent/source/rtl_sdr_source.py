@@ -96,6 +96,13 @@ class RTLSDRSource:
         self._fps = fps
         self._sdr_factory = _sdr_factory
         self._sdr: Any | None = None
+        # Set by stop(). When True, the next loop iteration in run() exits
+        # cleanly and any error coming out of read_samples is treated as
+        # expected shutdown noise (close() racing with read).
+        self._stopped = False
+        # Backpressure counter: number of frames dropped because the consumer
+        # queue was full. Visible for tests and telemetry.
+        self.frames_dropped = 0
         self._descriptor = IQDescriptor(
             sample_format=SampleFormat.FLOAT32,
             endianness=Endianness.LITTLE,
@@ -135,10 +142,30 @@ class RTLSDRSource:
         self._sdr = sdr
 
     async def stop(self) -> None:
-        """Close the RTL-SDR device."""
-        if self._sdr is not None:
-            self._sdr.close()
-            self._sdr = None
+        """Close the RTL-SDR device. Idempotent — safe to call multiple times.
+
+        Side-effects:
+          - sets ``_stopped`` so the next ``run()`` iteration exits cleanly,
+          - closes the underlying device,
+          - clears ``_sdr`` so subsequent calls are no-ops.
+
+        Closing the device while ``run_in_executor`` is mid-``read_samples``
+        typically causes libusb to return an error from the worker thread;
+        ``run()`` recognises ``_stopped`` and swallows that error rather than
+        propagating it.
+        """
+        self._stopped = True
+        sdr = self._sdr
+        if sdr is None:
+            return
+        self._sdr = None
+        try:
+            sdr.close()
+        except Exception:
+            # The device may already be in an error state (USB removed,
+            # double-close, etc.). We don't want a cleanup error to mask the
+            # actual shutdown cause.
+            pass
 
     async def run(self, output: asyncio.Queue[bytes]) -> None:
         """Read chunks from the device and push float32 interleaved bytes to output.
@@ -147,19 +174,80 @@ class RTLSDRSource:
         We convert to complex64 then reinterpret as float32 to get the
         canonical [I0, Q0, I1, Q1, …] layout.
 
-        Raises asyncio.CancelledError on cancellation.
+        Shutdown semantics:
+          - On ``asyncio.CancelledError`` we re-raise so the runner can shut
+            down deterministically. We do NOT swallow cancellation.
+          - On any non-cancellation exception, we propagate it unless
+            ``stop()`` was called concurrently — in that case the exception
+            is treated as expected close-race noise and we return cleanly.
+          - The runner is responsible for calling ``stop()`` after ``run()``
+            exits (whether via return, raise, or cancellation).
+
+        Backpressure: emission uses ``put_nowait``. If the consumer queue is
+        full we drop the oldest pending frame before enqueueing the newest
+        one (latest-frame-wins). For real-time RF, fresh data beats stale.
+        ``self.frames_dropped`` tracks this for telemetry.
+
+        Raises ``asyncio.CancelledError`` on cancellation.
         """
         if self._sdr is None:
             raise RuntimeError("call start() before run()")
 
         loop = asyncio.get_running_loop()
-        sdr = self._sdr
         chunk = self._chunk_samples
         sleep_per_chunk = 1.0 / self._fps if self._fps > 0 else 0.0
 
-        while True:
-            complex_samples = await loop.run_in_executor(None, sdr.read_samples, chunk)
+        while not self._stopped:
+            sdr = self._sdr
+            if sdr is None:
+                # stop() raced with this iteration after the while-check.
+                return
+            try:
+                complex_samples = await loop.run_in_executor(
+                    None, sdr.read_samples, chunk
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # If stop() ran concurrently, close()-ing the SDR makes
+                # read_samples error out — that's expected. Otherwise the
+                # error is real and the runner should see it.
+                if self._stopped:
+                    return
+                raise
+
+            if self._stopped:
+                return
+
             arr = np.asarray(complex_samples, dtype=np.complex64)
-            await output.put(arr.view(np.float32).tobytes())
+            self._emit(output, arr.view(np.float32).tobytes())
+
             if sleep_per_chunk > 0:
                 await asyncio.sleep(sleep_per_chunk)
+
+    def _emit(self, output: asyncio.Queue[bytes], buf: bytes) -> None:
+        """Push ``buf`` into ``output`` without blocking the hardware loop.
+
+        If the queue is full, drop the oldest pending item to make room
+        (latest-frame-wins). The drop is bounded to a single retry in case
+        of races between consumers and producers.
+        """
+        try:
+            output.put_nowait(buf)
+            return
+        except asyncio.QueueFull:
+            pass
+        # Queue was full: drop the oldest, then enqueue. On the (very rare)
+        # race where a consumer drained the queue between QueueFull and the
+        # get_nowait below, we just fall through to put_nowait and succeed.
+        try:
+            output.get_nowait()
+            self.frames_dropped += 1
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            output.put_nowait(buf)
+        except asyncio.QueueFull:
+            # Another producer raced ahead. Count this as a drop and move on
+            # rather than spin: the next chunk will get another shot.
+            self.frames_dropped += 1

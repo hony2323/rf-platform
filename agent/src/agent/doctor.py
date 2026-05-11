@@ -202,8 +202,12 @@ def check_device_enumeration() -> Check:
             Status.WARN,
             "0 device(s) found",
             remedy=(
-                "Plug in an RTL-SDR dongle. On WSL, attach it with: "
-                "rf-agent setup wsl-attach"
+                "Plug in an RTL-SDR dongle.\n"
+                "On WSL, the dongle must be (re-)attached after every unplug "
+                "via usbipd-win. Run:\n"
+                "  rf-agent setup wsl-attach\n"
+                "(One-time prerequisite: `usbipd bind --busid <X>` from an "
+                "elevated Windows PowerShell.)"
             ),
         )
     return Check("device enumeration", Status.OK, f"{count} device(s) found")
@@ -281,16 +285,62 @@ def check_udev_rules() -> Check:
 
 
 def check_plugdev() -> Check:
+    """Decide whether the current user can access USB via the plugdev group.
+
+    A user is considered a member if ANY of these are true:
+      1. plugdev is in the running process's effective group list
+         (``os.getgroups()``) — confirms USB access works *right now*.
+      2. plugdev is the user's primary group (``pwd.pw_gid``).
+      3. The user is listed in plugdev's supplementary members (``gr_mem``).
+
+    Cases 2 and 3 tell us the OS database is correct even when the running
+    shell hasn't picked up the new membership yet (typical immediately after
+    ``usermod`` before logout/login).
+    """
     try:
         import grp
+    except ImportError:
+        # Non-Unix; doctor doesn't reach this code path on Windows in practice.
+        return Check("plugdev group", Status.INFO, "group concept not applicable here")
 
-        members = grp.getgrnam("plugdev").gr_mem
-    except (KeyError, ImportError):
+    try:
+        plugdev = grp.getgrnam("plugdev")
+    except KeyError:
         return Check(
             "plugdev group", Status.INFO, "group does not exist on this system"
         )
-    user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
-    if user and user in members:
+
+    # 1. effective groups of THIS process.
+    try:
+        in_effective = plugdev.gr_gid in os.getgroups()
+    except OSError:
+        in_effective = False
+
+    # Pick the user we care about. Under sudo, USER is "root" but SUDO_USER
+    # tells us who actually invoked it.
+    user = (
+        os.environ.get("SUDO_USER")
+        or os.environ.get("USER")
+        or os.environ.get("LOGNAME")
+        or ""
+    )
+
+    in_membership = False
+    if user:
+        try:
+            import pwd
+
+            pw = pwd.getpwnam(user)
+            if pw.pw_gid == plugdev.gr_gid:
+                # 2. primary group.
+                in_membership = True
+        except (KeyError, ImportError):
+            pass
+        # 3. supplementary members.
+        if user in plugdev.gr_mem:
+            in_membership = True
+
+    if in_effective or in_membership:
         return Check("plugdev group", Status.OK, f"user '{user}' is a member")
     return Check(
         "plugdev group",
