@@ -165,7 +165,7 @@ def check_pyrtlsdr_import() -> Check:
         )
 
     try:
-        import pyrtlsdrlib  # type: ignore[import-not-found]  # noqa: F401
+        import pyrtlsdrlib  # noqa: F401
 
         backing = "pyrtlsdrlib (bundled)"
     except ImportError:
@@ -177,7 +177,7 @@ def check_device_enumeration() -> Check:
     try:
         # rtlsdr_get_device_count is bound as a module attribute on
         # rtlsdr.librtlsdr (via getattr, not direct `from … import`).
-        import rtlsdr.librtlsdr as _lib  # type: ignore[import-not-found]
+        import rtlsdr.librtlsdr as _lib
 
         get_count = getattr(_lib, "rtlsdr_get_device_count", None)
         if get_count is None:
@@ -208,7 +208,7 @@ def check_device_enumeration() -> Check:
 def check_device_open() -> Check:
     """Briefly open device index 0; translate LIBUSB errors into remedies."""
     try:
-        from rtlsdr import RtlSdr  # type: ignore[import-not-found]
+        from rtlsdr import RtlSdr
     except ImportError as e:
         return Check("device open", Status.FAIL, str(e))
 
@@ -393,7 +393,9 @@ def format_report(rep: Report) -> str:
     return "\n".join(lines)
 
 
-def add_doctor_subparser(sub: argparse._SubParsersAction) -> None:
+def add_doctor_subparser(
+    sub: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     p = sub.add_parser(
         "doctor",
         help="Diagnose RTL-SDR setup and print platform-specific fix instructions",

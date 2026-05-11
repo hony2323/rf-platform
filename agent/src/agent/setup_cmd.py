@@ -274,8 +274,15 @@ For SDR use, WinUSB is the right driver.
 """
     )
     print(f"[zadig] launching {zadig_path} ...")
+    # os.startfile only exists on Windows; we already exited above on non-win32.
+    startfile = getattr(os, "startfile", None)
+    if startfile is None:
+        print(
+            "Error: os.startfile unavailable; launch Zadig manually.", file=sys.stderr
+        )
+        return 1
     try:
-        os.startfile(str(zadig_path))  # type: ignore[attr-defined]  # Windows-only
+        startfile(str(zadig_path))
     except OSError as e:
         print(f"Error launching Zadig: {e}", file=sys.stderr)
         return 1
@@ -287,7 +294,9 @@ For SDR use, WinUSB is the right driver.
 # ---------------------------------------------------------------------------
 
 
-def add_setup_subparser(sub: argparse._SubParsersAction) -> None:
+def add_setup_subparser(
+    sub: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
     p = sub.add_parser(
         "setup",
         help="Install OS-level RTL-SDR prerequisites (udev rules, libusb, Zadig)",

@@ -117,7 +117,7 @@ class RTLSDRSource:
         else:
             try:
                 _install_missing_symbol_stubs()
-                from rtlsdr import RtlSdr  # type: ignore[import-not-found]
+                from rtlsdr import RtlSdr
             except ImportError as exc:
                 raise ImportError(
                     "pyrtlsdr is required for RTL-SDR support. "
