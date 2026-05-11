@@ -49,7 +49,11 @@ UDEV_RULES_TEXT = (
 
 UDEV_RULES_PATH = "/etc/udev/rules.d/20-rtl-sdr.rules"
 
-ZADIG_URL = "https://github.com/pbatard/libwdi/releases/download/v1.5.0/zadig-2.9.exe"
+# Zadig is published under the libwdi repo with `b###` build tags. The asset
+# name changes per release (`zadig-2.7.exe`, `zadig-2.9.exe`, ...), so resolve
+# it dynamically from the GitHub API instead of hard-coding a stale URL.
+_ZADIG_RELEASES_API = "https://api.github.com/repos/pbatard/libwdi/releases?per_page=10"
+_ZADIG_FALLBACK_HOMEPAGE = "https://zadig.akeo.ie"
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +227,33 @@ def setup_macos() -> int:
 # ---------------------------------------------------------------------------
 
 
+def _fetch_latest_zadig_url() -> str | None:
+    """Find the most recent ``zadig-*.exe`` asset in the libwdi releases.
+
+    Returns ``None`` if the API is unreachable or no matching asset is found.
+    """
+    import json
+    import urllib.request
+
+    req = urllib.request.Request(
+        _ZADIG_RELEASES_API,
+        headers={"Accept": "application/vnd.github+json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            releases = json.load(resp)
+    except (OSError, json.JSONDecodeError):
+        return None
+    for rel in releases:
+        for asset in rel.get("assets") or []:
+            name = asset.get("name", "")
+            if name.startswith("zadig-") and name.endswith(".exe"):
+                url = asset.get("browser_download_url")
+                if isinstance(url, str):
+                    return url
+    return None
+
+
 def setup_windows() -> int:
     """Download Zadig (if not cached) and launch it for driver replacement."""
     if sys.platform != "win32":
@@ -244,12 +275,23 @@ def setup_windows() -> int:
     if zadig_path.exists():
         print(f"[zadig] cached at {zadig_path}")
     else:
-        print(f"[zadig] downloading from {ZADIG_URL} ...")
+        print("[zadig] resolving latest release via GitHub API ...")
+        zadig_url = _fetch_latest_zadig_url()
+        if zadig_url is None:
+            print(
+                f"Error: could not resolve a Zadig download URL.\n"
+                f"Download it manually from {_ZADIG_FALLBACK_HOMEPAGE} and "
+                f"re-run after placing zadig.exe at:\n  {zadig_path}",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"[zadig] downloading {zadig_url} ...")
         try:
-            urllib.request.urlretrieve(ZADIG_URL, zadig_path)
+            urllib.request.urlretrieve(zadig_url, zadig_path)
         except OSError as e:
             print(
-                f"Error: download failed ({e}). Visit https://zadig.akeo.ie manually.",
+                f"Error: download failed ({e}). "
+                f"Visit {_ZADIG_FALLBACK_HOMEPAGE} manually.",
                 file=sys.stderr,
             )
             return 1
