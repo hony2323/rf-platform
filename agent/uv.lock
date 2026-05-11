@@ -549,6 +549,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pyrtlsdrlib"
+version = "0.0.4"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fb/05/369c1708d5a22b1bd7b482c75da79657fd9928d0d1c2ec8e62818fdd793c/pyrtlsdrlib-0.0.4-py3-none-macosx_11_0_arm64.whl", hash = "sha256:4426d839be3eb0196ee0b9176710d1597c5bf949ffd49527dd7a0dc89c2f739a", size = 264579, upload-time = "2026-02-28T22:21:33.289Z" },
+    { url = "https://files.pythonhosted.org/packages/87/94/e21c6c1c84360cea94ef2f945b9369226771510c262f5a0d17e2050b93a7/pyrtlsdrlib-0.0.4-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:edab3572a607750f6ad81f09c8de26cc247ccf4c0cc52e4c576529ccce9b03a4", size = 266480, upload-time = "2026-02-28T22:21:35.33Z" },
+    { url = "https://files.pythonhosted.org/packages/12/48/f79ad29b9f980e6cd6b68951519b831cf81b6887c06773439d3d9fc94b81/pyrtlsdrlib-0.0.4-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:fbec8cb4dcb5ca3aec775db5db4be10842a5d12bbd3a59066b78c3a29837f7a7", size = 1280717, upload-time = "2026-02-28T22:21:37.07Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/13/5571715bf2597037355eec3ead38e006b5c7e43b3f72b6ffc69cd6064aaa/pyrtlsdrlib-0.0.4-py3-none-win32.whl", hash = "sha256:2dc811d683a0a63c927f3cf57608071cc006a11e6a0632baf4d63000de3ee4d1", size = 1309993, upload-time = "2026-02-28T22:21:38.656Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/64/a327dd68efbab579316da8cb133ac7ef8c0b20eeb4416e6c773d422e402f/pyrtlsdrlib-0.0.4-py3-none-win_amd64.whl", hash = "sha256:4da583821732071f4c06f5e0eb2c2bc6a98b10031b699b546fb98de4fcbf8011", size = 1309995, upload-time = "2026-02-28T22:21:40.173Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -615,6 +627,7 @@ dev = [
 ]
 sdr = [
     { name = "pyrtlsdr" },
+    { name = "pyrtlsdrlib" },
 ]
 
 [package.metadata]
@@ -622,6 +635,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "pyrtlsdr", marker = "extra == 'sdr'", specifier = ">=0.4.0" },
+    { name = "pyrtlsdrlib", marker = "extra == 'sdr'", specifier = ">=0.0.4" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },

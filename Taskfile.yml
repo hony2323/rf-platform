@@ -93,12 +93,37 @@ tasks:
     cmds:
       - uv run ruff check src/
 
-  # ── USB / RTL-SDR ──────────────────────────────────────────────────────────
+  # ── RTL-SDR setup & diagnostics (all backed by `rf-agent` subcommands) ─────
+
+  setup:linux:
+    desc: Install udev rules + libusb (Linux/WSL). Needs sudo.
+    dir: agent
+    cmds:
+      - uv run rf-agent setup linux
+
+  setup:macos:
+    desc: Install libusb via Homebrew (macOS)
+    dir: agent
+    cmds:
+      - uv run rf-agent setup macos
+
+  setup:windows:
+    desc: Download Zadig and open it to install the WinUSB driver (Windows)
+    dir: agent
+    cmds:
+      - uv run rf-agent setup windows
+
+  doctor:
+    desc: Diagnose RTL-SDR setup and print platform-specific fix instructions
+    dir: agent
+    cmds:
+      - uv run rf-agent doctor
 
   usb:attach:
     desc: Attach the RTL-SDR dongle to WSL via usbipd-win (run after replug)
+    dir: agent
     cmds:
-      - scripts/attach-rtlsdr.sh
+      - uv run rf-agent setup wsl-attach
 
   # ── Type check ─────────────────────────────────────────────────────────────
 

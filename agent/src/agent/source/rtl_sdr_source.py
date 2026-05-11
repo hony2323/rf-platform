@@ -25,16 +25,18 @@ from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 # Debian/Ubuntu (2.0.2). None of them are used by this agent, so we install
 # no-op stubs so the import succeeds. Has no effect on builds whose librtlsdr
 # already exports the symbols.
-_MISSING_LIBRTLSDR_SYMBOLS = frozenset({
-    "rtlsdr_set_dithering",
-    "rtlsdr_set_gpio_output",
-    "rtlsdr_set_gpio_input",
-    "rtlsdr_set_gpio_bit",
-    "rtlsdr_get_gpio_bit",
-    "rtlsdr_set_gpio_byte",
-    "rtlsdr_get_gpio_byte",
-    "rtlsdr_set_gpio_status",
-})
+_MISSING_LIBRTLSDR_SYMBOLS = frozenset(
+    {
+        "rtlsdr_set_dithering",
+        "rtlsdr_set_gpio_output",
+        "rtlsdr_set_gpio_input",
+        "rtlsdr_set_gpio_bit",
+        "rtlsdr_get_gpio_bit",
+        "rtlsdr_set_gpio_byte",
+        "rtlsdr_get_gpio_byte",
+        "rtlsdr_set_gpio_status",
+    }
+)
 
 
 def _install_missing_symbol_stubs() -> None:

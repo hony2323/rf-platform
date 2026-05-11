@@ -153,6 +153,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
 
+    from agent.doctor import add_doctor_subparser
+    from agent.setup_cmd import add_setup_subparser
+
+    add_doctor_subparser(sub)
+    add_setup_subparser(sub)
+
     conn = sub.add_parser(
         "connect",
         help="Connect to the RF Platform server and start streaming",
@@ -561,11 +567,13 @@ def _connect(args: argparse.Namespace) -> None:
         # Each chunk produces (chunk_samples / fft_size) FFT frames.
         # chunk_samples defaults to fft_size, so by default fps == frames/sec.
         rtlsdr_fps = float(fps_arg) if fps_arg is not None else 10.0
-        rtlsdr_chunk = int(_pick(
-            getattr(args, "rtlsdr_chunk_samples", None),
-            _get(file_cfg, "source", "chunk_samples"),
-            fft_size,
-        ))
+        rtlsdr_chunk = int(
+            _pick(
+                getattr(args, "rtlsdr_chunk_samples", None),
+                _get(file_cfg, "source", "chunk_samples"),
+                fft_size,
+            )
+        )
         disp_fps = rtlsdr_fps * rtlsdr_chunk / fft_size
     else:
         logical_fps = iq.sample_rate_hz / fft_size
@@ -618,3 +626,11 @@ def main() -> None:
 
     if args.command == "connect":
         _connect(args)
+    elif args.command == "doctor":
+        from agent.doctor import run as run_doctor
+
+        run_doctor(args)
+    elif args.command == "setup":
+        from agent.setup_cmd import run as run_setup
+
+        run_setup(args)
