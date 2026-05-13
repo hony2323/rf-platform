@@ -1,7 +1,7 @@
 # RF Platform - Server
 
 Central relay server for live RF spectrum streaming. Agents push FFT frames over WebSocket; browser viewers subscribe and receive them in real time. SQLite stores users, agents, and tokens.
-
+ 
 ## Quick start
 
 ```bash
