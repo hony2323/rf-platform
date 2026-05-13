@@ -22,6 +22,10 @@ def _minimal_args(**kwargs: object) -> argparse.Namespace:
         "fft_size": None,
         "sample_rate": None,
         "freq": None,
+        "source": None,
+        "rtlsdr_device_index": None,
+        "rtlsdr_gain": None,
+        "rtlsdr_chunk_samples": None,
     }
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -113,3 +117,44 @@ class TestCliUsesConfigLoader:
             with pytest.raises(SystemExit) as exc_info:
                 _resolve_connect(args, file_cfg)
         assert "Configuration error" in str(exc_info.value)
+
+
+class TestFpsCap:
+    """Free-tier --fps ceiling (premium members will be allowed to exceed)."""
+
+    _file_cfg: dict = {
+        "server": {"url": "ws://localhost:8000/ws/agent", "token": "t"},
+        "identity": {"node_id": "n"},
+    }
+
+    def test_fps_at_cap_is_allowed(self) -> None:
+        cfg, _, _ = _resolve_connect(_minimal_args(fps=10.0), self._file_cfg)
+        assert cfg is not None
+
+    def test_fps_just_above_cap_exits(self) -> None:
+        with pytest.raises(SystemExit) as exc:
+            _resolve_connect(_minimal_args(fps=10.1), self._file_cfg)
+        msg = str(exc.value)
+        assert "free tier" in msg.lower()
+        assert "10" in msg
+
+    def test_fps_well_above_cap_exits_with_premium_hint(self) -> None:
+        with pytest.raises(SystemExit) as exc:
+            _resolve_connect(_minimal_args(fps=60.0), self._file_cfg)
+        assert "premium" in str(exc.value).lower()
+
+    def test_fps_zero_or_negative_exits(self) -> None:
+        for bad in (0.0, -1.0):
+            with pytest.raises(SystemExit) as exc:
+                _resolve_connect(_minimal_args(fps=bad), self._file_cfg)
+            assert "> 0" in str(exc.value)
+
+    def test_fps_from_toml_is_also_capped(self) -> None:
+        """The cap must apply to rf-agent.toml's source.fps as well, not just --fps."""
+        cfg_with_high_fps = {
+            **self._file_cfg,
+            "source": {"fps": 30.0},
+        }
+        with pytest.raises(SystemExit) as exc:
+            _resolve_connect(_minimal_args(), cfg_with_high_fps)
+        assert "free tier" in str(exc.value).lower()

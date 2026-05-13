@@ -58,6 +58,7 @@ from agent.transport import AuthenticationError
 from agent.config import AgentConfig, ConfigValidationError, load_config_dict
 from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
 from agent.source.base import IQSource
+from agent.source.rtl_sdr_source import RTLSDRSource
 from agent.source.sigmf import SigMFSource
 from agent.source.sigmf import read_iq_descriptor as sigmf_read_iq
 from agent.source.simulator import SimulatorSource
@@ -69,6 +70,10 @@ _DEFAULT_CONFIG_PATHS = [
     Path("rf-agent.toml"),
     Path.home() / ".rf-agent" / "config.toml",
 ]
+
+# Free-tier ceiling on the FPS knob. Premium-tier accounts will be allowed to
+# exceed this in the future; for now we enforce it here at the CLI entry point.
+MAX_FPS_FREE_TIER = 10.0
 
 
 class _TomlModule(Protocol):
@@ -152,6 +157,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="command", metavar="COMMAND")
 
+    from agent.doctor import add_doctor_subparser
+    from agent.setup_cmd import add_setup_subparser
+
+    add_doctor_subparser(sub)
+    add_setup_subparser(sub)
+
     conn = sub.add_parser(
         "connect",
         help="Connect to the RF Platform server and start streaming",
@@ -204,8 +215,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=float,
         metavar="N",
         default=None,
-        help="Target frames per second  (config: source.fps). "
-        "Mutually exclusive with --rate-limit-msps.",
+        help=(
+            "Target frames per second  (config: source.fps). "
+            f"Free-tier maximum: {MAX_FPS_FREE_TIER:.0f}. "
+            "Premium members may exceed this. "
+            "Mutually exclusive with --rate-limit-msps."
+        ),
     )
     g.add_argument(
         "--rate-limit-msps",
@@ -238,7 +253,39 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="HZ",
         default=None,
         help="Centre frequency Hz; simulator default: 433920000; "
-        "required for .wav files  (config: source.freq)",
+        "required for .wav and rtl-sdr  (config: source.freq)",
+    )
+    g.add_argument(
+        "--source",
+        metavar="TYPE",
+        default=None,
+        choices=["simulator", "rtl-sdr"],
+        help='Source type: "simulator" (default) or "rtl-sdr".  (config: source.type)',
+    )
+    g.add_argument(
+        "--rtlsdr-device-index",
+        type=int,
+        dest="rtlsdr_device_index",
+        metavar="N",
+        default=None,
+        help="RTL-SDR device index (default: 0).  (config: source.device_index)",
+    )
+    g.add_argument(
+        "--rtlsdr-gain",
+        dest="rtlsdr_gain",
+        metavar="GAIN",
+        default=None,
+        help='RTL-SDR tuner gain: "auto" or a numeric value.  (config: source.gain)',
+    )
+    g.add_argument(
+        "--rtlsdr-chunk-samples",
+        type=int,
+        dest="rtlsdr_chunk_samples",
+        metavar="N",
+        default=None,
+        help="RTL-SDR samples per read call. Default: matches --fft-size, so "
+        "one chunk produces one FFT frame and --fps maps directly to frames/sec.  "
+        "(config: source.chunk_samples)",
     )
 
     g = conn.add_argument_group("system")
@@ -288,8 +335,35 @@ def _resolve_connect(
 
     file_arg: str | None = _pick(args.file, _get(file_cfg, "source", "file"))
     fps: float | None = _pick(args.fps, _get(file_cfg, "source", "fps"))
+    if fps is not None:
+        try:
+            fps = float(fps)
+        except (TypeError, ValueError) as exc:
+            raise SystemExit(f"Invalid fps value: {fps!r}") from exc
+        if fps <= 0:
+            raise SystemExit(f"fps must be > 0; got {fps}")
+        if fps > MAX_FPS_FREE_TIER:
+            raise SystemExit(
+                f"fps capped at {MAX_FPS_FREE_TIER:.0f} on the free tier "
+                f"(got {fps}). Premium members may exceed this — "
+                "contact support to upgrade."
+            )
     rate_limit_msps: float | None = _pick(
         args.rate_limit_msps, _get(file_cfg, "source", "rate_limit_msps")
+    )
+    source_type: str | None = _pick(args.source, _get(file_cfg, "source", "type"))
+    rtlsdr_device_index = int(
+        _pick(args.rtlsdr_device_index, _get(file_cfg, "source", "device_index"), 0)
+    )
+    rtlsdr_gain: str | float = _pick(
+        args.rtlsdr_gain, _get(file_cfg, "source", "gain"), "auto"
+    )
+    rtlsdr_chunk_samples = int(
+        _pick(
+            args.rtlsdr_chunk_samples,
+            _get(file_cfg, "source", "chunk_samples"),
+            fft_size,
+        )
     )
 
     # ---- Validate ----
@@ -311,13 +385,74 @@ def _resolve_connect(
     if fps is not None and rate_limit_msps is not None:
         raise SystemExit("--fps and --rate-limit-msps are mutually exclusive")
 
+    # ---- RTL-SDR path: resolve before file path so --source wins ----
+    if source_type == "rtl-sdr":
+        if freq is None:
+            raise SystemExit(
+                "--freq is required for rtl-sdr (specify the centre frequency in Hz)"
+            )
+        center_hz = int(freq)
+        rtlsdr_sample_rate = int(
+            _pick(args.sample_rate, _get(file_cfg, "source", "sample_rate"), 2_048_000)
+        )
+        iq = IQDescriptor(
+            sample_format=SampleFormat.FLOAT32,
+            endianness=Endianness.LITTLE,
+            layout=Layout.INTERLEAVED,
+            sample_rate_hz=rtlsdr_sample_rate,
+            center_freq_hz=center_hz,
+        )
+        source_label = f"rtl-sdr:device{rtlsdr_device_index}"
+
+        _rtlsdr_center = center_hz
+        _rtlsdr_sr = rtlsdr_sample_rate
+        _rtlsdr_di = rtlsdr_device_index
+        _rtlsdr_gain = rtlsdr_gain
+        _rtlsdr_chunk = rtlsdr_chunk_samples
+        _rtlsdr_fps = float(fps) if fps is not None else 10.0
+
+        def _make_rtlsdr_source(agent_cfg: AgentConfig) -> IQSource:
+            return RTLSDRSource(
+                center_freq_hz=_rtlsdr_center,
+                sample_rate_hz=_rtlsdr_sr,
+                device_index=_rtlsdr_di,
+                gain=_rtlsdr_gain,
+                chunk_samples=_rtlsdr_chunk,
+                fps=_rtlsdr_fps,
+            )
+
+        make_source = _make_rtlsdr_source
+
+        raw: dict[str, Any] = {
+            "server": {"url": server_url, "token": token},
+            "identity": {"node_id": node_id},
+            "iq": {
+                "sample_format": iq.sample_format.value,
+                "endianness": iq.endianness.value,
+                "layout": iq.layout.value,
+                "sample_rate_hz": iq.sample_rate_hz,
+                "center_freq_hz": iq.center_freq_hz,
+            },
+            "rf": {
+                "center_freq_hz": iq.center_freq_hz,
+                "sample_rate_hz": iq.sample_rate_hz,
+                "fft_size": fft_size,
+            },
+        }
+        for section in ("reconnect", "queues", "telemetry", "bandwidth"):
+            val = file_cfg.get(section)
+            if val is not None:
+                raw[section] = val
+        try:
+            agent_config = load_config_dict(raw)
+        except ConfigValidationError as exc:
+            raise SystemExit(f"Configuration error: {exc}") from exc
+        return agent_config, make_source, source_label
+
     # ---- Resolve file path and build IQ descriptor ----
     file_path = Path(file_arg) if file_arg else None
     if file_path is not None and file_path.suffix.lower() == ".sigmf-data":
         file_path = file_path.with_suffix(".sigmf-meta")
-
-    iq: IQDescriptor
-    source_label: str
 
     if file_path is not None:
         suffix = file_path.suffix.lower()
@@ -404,7 +539,7 @@ def _resolve_connect(
         make_source = _make_simulator_source
 
     # ---- Build typed config through the validation boundary ----
-    raw: dict[str, Any] = {
+    raw = {
         "server": {"url": server_url, "token": token},
         "identity": {"node_id": node_id},
         "iq": {
@@ -448,8 +583,22 @@ def _connect(args: argparse.Namespace) -> None:
     else:
         effective_rl = None
 
-    logical_fps = iq.sample_rate_hz / fft_size
-    disp_fps = (effective_rl * 1e6 / fft_size) if effective_rl else logical_fps
+    if source_label.startswith("rtl-sdr"):
+        # RTLSDRSource throttles itself: fps = chunks emitted per second.
+        # Each chunk produces (chunk_samples / fft_size) FFT frames.
+        # chunk_samples defaults to fft_size, so by default fps == frames/sec.
+        rtlsdr_fps = float(fps_arg) if fps_arg is not None else 10.0
+        rtlsdr_chunk = int(
+            _pick(
+                getattr(args, "rtlsdr_chunk_samples", None),
+                _get(file_cfg, "source", "chunk_samples"),
+                fft_size,
+            )
+        )
+        disp_fps = rtlsdr_fps * rtlsdr_chunk / fft_size
+    else:
+        logical_fps = iq.sample_rate_hz / fft_size
+        disp_fps = (effective_rl * 1e6 / fft_size) if effective_rl else logical_fps
     print(
         f"rf-agent {_VERSION}\n"
         f"  source     = {source_label}\n"
@@ -498,3 +647,11 @@ def main() -> None:
 
     if args.command == "connect":
         _connect(args)
+    elif args.command == "doctor":
+        from agent.doctor import run as run_doctor
+
+        run_doctor(args)
+    elif args.command == "setup":
+        from agent.setup_cmd import run as run_setup
+
+        run_setup(args)

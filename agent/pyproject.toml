@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rf-agent"
-version = "0.4.0b1"
+version = "0.5.0a4"
 requires-python = ">=3.10"
 description = "SDR agent for RF spectrum streaming"
 readme = "README.md"
@@ -30,7 +30,8 @@ rf-agent = "agent.cli:main"
 
 [project.optional-dependencies]
 sdr = [
-    "pyrtlsdr>=0.3.0",
+    "pyrtlsdr>=0.4.0",
+    "pyrtlsdrlib>=0.0.4",
 ]
 dev = [
     "pytest>=8.0",
@@ -59,9 +60,25 @@ strict = true
 packages = ["agent"]
 mypy_path = "src"
 
+# pyrtlsdr and its bundled-binary helper ship without py.typed markers.
+[[tool.mypy.overrides]]
+module = ["rtlsdr", "rtlsdr.*", "pyrtlsdrlib", "pyrtlsdrlib.*"]
+ignore_missing_imports = true
+
 [tool.ruff]
 target-version = "py310"
 src = ["src", "src/tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "UP"]
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+branch = "master"
+tag_format = "agent-v{version}"
+commit_message = "chore(release): agent {version} [skip ci]"
+major_on_zero = false
+
+[tool.semantic_release.commit_parser_options]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf", "refactor"]
