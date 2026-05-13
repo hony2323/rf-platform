@@ -4,9 +4,10 @@ on:
   push:
     branches: [master]
     paths: ["agent/**"]
+  workflow_dispatch:
 
 concurrency:
-  group: release-agent
+  group: release
   cancel-in-progress: false
 
 jobs:
