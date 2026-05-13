@@ -174,9 +174,9 @@ def app(db_state):
 def _connect_msg() -> dict:
     return {
         "msg_type": "connect",
-        "protocol_version": "0.3",
+        "protocol_version": "0.5",
         "node_id": "node_x",
-        "agent_version": "0.3.0",
+        "agent_version": "0.5.0",
         "requested_encoding": "json_base64",
     }
 

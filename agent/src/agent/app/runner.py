@@ -69,7 +69,15 @@ ProcessorFactory = Callable[[AgentConfig], Processor]
 TransportFactory = Callable[[AgentConfig], Transport]
 CodecFactory = Callable[[AgentConfig], ProtocolCodec]
 SessionFactory = Callable[
-    [AgentConfig, Transport, ProtocolCodec, "Callable[[], None] | None"], Any
+    [
+        AgentConfig,
+        Transport,
+        ProtocolCodec,
+        IQSource,
+        Processor,
+        "Callable[[], None] | None",
+    ],
+    Any,
 ]
 TelemetryFactory = Callable[
     [AgentConfig, Any, MetricsCollector, Transport, ProtocolCodec],
@@ -160,11 +168,11 @@ class AgentRunner:
             try:
                 transport = self._factories.make_transport(config)
                 codec = self._factories.make_codec(config)
-                session = self._factories.make_session(
-                    config, transport, codec, _on_connected
-                )
                 source = self._factories.make_source(config)
                 processor = self._factories.make_processor(config)
+                session = self._factories.make_session(
+                    config, transport, codec, source, processor, _on_connected
+                )
                 metrics = MetricsCollector()
                 telemetry = self._factories.make_telemetry(
                     config, session, metrics, transport, codec

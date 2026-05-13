@@ -6,7 +6,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Any
 
-SUPPORTED_PROTOCOL_VERSION = "0.3"
+SUPPORTED_PROTOCOL_VERSION = "0.5"
 SUPPORTED_ENCODINGS: tuple[str, ...] = ("json_base64", "binary_ws")
 SUPPORTED_ENCODING = "json_base64"  # default when client did not request one
 _VIEWER_HEADER_LEN_MAX = 0xFFFF
@@ -38,6 +38,7 @@ class StreamConfigMsg:
     timestamp_utc: str
     rf: dict[str, Any]
     fft_semantics: dict[str, Any]
+    request_id: str | None = None  # set when this is the response to a config_request
 
 
 @dataclass
@@ -56,6 +57,17 @@ class AgentStatusMsg:
 
 
 @dataclass
+class ConfigRejectedMsg:
+    """Agent→server rejection of a server-pushed config_request (v0.5+)."""
+
+    node_id: str
+    session_id: str
+    request_id: str
+    code: str
+    message: str
+
+
+@dataclass
 class SpectrumFrameMsg:
     node_id: str
     session_id: str
@@ -67,7 +79,14 @@ class SpectrumFrameMsg:
     bin_count: int | None = None  # required by binary_ws header; absent on json_base64
 
 
-InboundMsg = ConnectMsg | StreamConfigMsg | HeartbeatMsg | AgentStatusMsg | SpectrumFrameMsg
+InboundMsg = (
+    ConnectMsg
+    | StreamConfigMsg
+    | HeartbeatMsg
+    | AgentStatusMsg
+    | SpectrumFrameMsg
+    | ConfigRejectedMsg
+)
 
 
 def decode_message(raw: str) -> InboundMsg:
@@ -94,6 +113,15 @@ def decode_message(raw: str) -> InboundMsg:
                 timestamp_utc=data["timestamp_utc"],
                 rf=data["rf"],
                 fft_semantics=data["fft_semantics"],
+                request_id=data.get("request_id"),
+            )
+        if msg_type == "config_rejected":
+            return ConfigRejectedMsg(
+                node_id=data["node_id"],
+                session_id=data["session_id"],
+                request_id=data["request_id"],
+                code=data["code"],
+                message=data["message"],
             )
         if msg_type == "heartbeat":
             return HeartbeatMsg(
@@ -279,16 +307,60 @@ def encode_viewer_subscribe_ack(agent_id: str, session_id: str, stream_id: str) 
     )
 
 
-def encode_viewer_stream_config(agent_id: str, session_id: str, config: dict) -> str:
+def encode_viewer_stream_config(
+    agent_id: str,
+    session_id: str,
+    config: dict,
+    request_id: str | None = None,
+) -> str:
+    msg: dict[str, Any] = {
+        "msg_type": "stream_config",
+        "agent_id": agent_id,
+        "session_id": session_id,
+        "stream_id": config["stream_id"],
+        "config_version": config["config_version"],
+        "rf": config["rf"],
+        "fft_semantics": config["fft_semantics"],
+    }
+    if request_id is not None:
+        msg["request_id"] = request_id
+    return json.dumps(msg)
+
+
+def encode_config_request(
+    session_id: str,
+    stream_id: str,
+    request_id: str,
+    rf: dict[str, Any],
+    tuner: dict[str, Any] | None = None,
+) -> str:
+    """Server → agent push of a new RF/FFT/tuner config (v0.5)."""
+    msg: dict[str, Any] = {
+        "msg_type": "config_request",
+        "session_id": session_id,
+        "stream_id": stream_id,
+        "request_id": request_id,
+        "rf": rf,
+    }
+    if tuner is not None:
+        msg["tuner"] = tuner
+    return json.dumps(msg)
+
+
+def encode_request_config_error(
+    request_id: str, code: str, message: str
+) -> str:
+    """Server → viewer error reply for a `request_config` (v0.5).
+
+    `request_id` is the viewer's own request_id (so the client can match it
+    against its pending-promise map).
+    """
     return json.dumps(
         {
-            "msg_type": "stream_config",
-            "agent_id": agent_id,
-            "session_id": session_id,
-            "stream_id": config["stream_id"],
-            "config_version": config["config_version"],
-            "rf": config["rf"],
-            "fft_semantics": config["fft_semantics"],
+            "msg_type": "request_config_error",
+            "request_id": request_id,
+            "code": code,
+            "message": message,
         }
     )
 

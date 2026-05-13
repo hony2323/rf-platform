@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import math
 import struct
+from dataclasses import replace
 
-from agent.domain import IQDescriptor
+from agent.domain import IQDescriptor, RFConfig, TunerConfig
 
 
 class SimulatorSource:
@@ -60,11 +61,13 @@ class SimulatorSource:
         pass
 
     async def run(self, output: asyncio.Queue[bytes]) -> None:
-        sr = self._descriptor.sample_rate_hz
-        omega = 2.0 * math.pi * self._tone_offset_hz / sr
         n_samples = self._block_size // 8
 
         while True:
+            # Re-read sample_rate every block so apply_rf_update takes effect
+            # on the very next emission.
+            sr = self._descriptor.sample_rate_hz
+            omega = 2.0 * math.pi * self._tone_offset_hz / sr
             floats: list[float] = []
             for _ in range(n_samples):
                 floats.append(math.cos(self._phase))
@@ -72,3 +75,13 @@ class SimulatorSource:
                 self._phase = (self._phase + omega) % (2.0 * math.pi)
             await output.put(struct.pack(f"<{len(floats)}f", *floats))
             await asyncio.sleep(self._sleep_per_block or 0)
+
+    async def apply_rf_update(self, rf: RFConfig, tuner: TunerConfig | None) -> None:
+        """Live-retune the simulator. `tuner` is ignored — no gain stage."""
+        self._descriptor = replace(
+            self._descriptor,
+            sample_rate_hz=rf.sample_rate_hz,
+            center_freq_hz=rf.center_freq_hz,
+        )
+        # Reset phase so the tone restarts cleanly at the new sample rate.
+        self._phase = 0.0

@@ -38,6 +38,35 @@ export interface ViewerStreamConfigMessage {
   config_version: number;
   rf: RfConfig;
   fft_semantics: FftSemantics;
+  // v0.5: set when this stream_config is the server's confirmation of a
+  // request_config the originating viewer initiated.
+  request_id?: string;
+}
+
+export interface RfConfigRequest {
+  center_freq_hz: number;
+  sample_rate_hz: number;
+  fft_size: number;
+  window_fn: string;
+}
+
+export interface TunerConfigRequest {
+  gain_db: number | null;
+  agc: boolean;
+}
+
+export interface ViewerRequestConfigMessage {
+  msg_type: "request_config";
+  request_id: string;
+  rf: RfConfigRequest;
+  tuner?: TunerConfigRequest;
+}
+
+export interface ViewerRequestConfigErrorMessage {
+  msg_type: "request_config_error";
+  request_id: string;
+  code: "CONFIG_REJECTED" | "CONFIG_BUSY" | "CONFIG_TIMEOUT" | "INVALID_FRAME";
+  message: string;
 }
 
 export interface ViewerSpectrumFrameMessage {
@@ -61,4 +90,5 @@ export type ViewerInboundMessage =
   | ViewerSubscribeAckMessage
   | ViewerStreamConfigMessage
   | ViewerSpectrumFrameMessage
-  | ViewerErrorMessage;
+  | ViewerErrorMessage
+  | ViewerRequestConfigErrorMessage;

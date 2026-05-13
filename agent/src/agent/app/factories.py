@@ -87,12 +87,16 @@ def make_standard_factories(
         cfg: AgentConfig,
         t: Transport,
         c: ProtocolCodec,
+        source: IQSource,
+        processor: Processor,
         on_connected: Callable[[], None] | None = None,
     ) -> Session:
         return Session(
             config=cfg,
             transport=t,
             codec=c,
+            source=source,
+            processor=processor,
             timings=pipeline_timing,
             metrics=shared_metrics,
             on_connected=on_connected,

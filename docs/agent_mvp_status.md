@@ -1,9 +1,11 @@
 # Agent — MVP Status
 
-**Date:** 2026-05-01  
-**Protocol version:** 0.4 (`protocol/agent_server_contract_v0_4.md`)
+**Date:** 2026-05-14
+**Protocol version:** 0.5 (`protocol/agent_server_contract_v0_5.md`)
 
 This document describes what is implemented in the agent, what is stubbed or hollow, and what is missing before the agent can be considered production-ready for MVP.
+
+**v0.5 update (2026-05-14):** Adds a server→agent control channel. New messages: `config_request` (server→agent), `config_rejected` (agent→server), plus an optional `request_id` field on `stream_config` so the server can correlate viewer-initiated config changes. Sources opt in to live retune by implementing `apply_rf_update(rf, tuner)` on the `IQSource` protocol; RTL-SDR and Simulator implement it, WAV and SigMF do not. See `protocol/agent_server_contract_v0_5.md` for the wire-level diff from v0.4.
 
 **v0.4 update (2026-05-01):** Default wire encoding flipped from `json_base64` to `binary_ws`. Agent → server `spectrum_frame` is now sent as a binary WS message (`[uint16_be header_len][JSON header][raw float32 LE]`) — same layout as the existing server → viewer frame. `json_base64` remains supported. See `docs/agent_wire_v0_4_plan.md` for the bench numbers and rationale.
 
@@ -51,10 +53,11 @@ Frozen dataclasses and enums. Nothing else imports into here.
 | Component | Status |
 |---|---|
 | `IQSource` Protocol | `start()`, `stop()`, `run(queue)`, `descriptor` |
-| `SimulatorSource` | Pure tone generator; optional rate limiting via leaky bucket |
-| `WavSource` | WAV file replay (PCM uint8/int16, IEEE float32/float64); optional rate limiting |
-| `SigMFSource` | SigMF recording replay (ci16, cf32, cf64, cu8); **no rate limiting** |
-| RTL-SDR / hardware | **Does not exist** — see gaps |
+| `LiveRetunableSource` Protocol (v0.5) | Optional `apply_rf_update(rf, tuner)` — sources opt in to live retune by implementing it. |
+| `SimulatorSource` | Pure tone generator; optional rate limiting via leaky bucket. Implements `apply_rf_update`. |
+| `WavSource` | WAV file replay (PCM uint8/int16, IEEE float32/float64); optional rate limiting. **Does not implement `apply_rf_update`** — file defines RF. |
+| `SigMFSource` | SigMF recording replay (ci16, cf32, cf64, cu8); **no rate limiting**. Does not implement `apply_rf_update`. |
+| `RTLSDRSource` | Real RTL-SDR hardware via pyrtlsdr. Implements `apply_rf_update` with a generation counter to drop chunks captured across a retune. |
 
 ---
 
@@ -72,11 +75,11 @@ Frozen dataclasses and enums. Nothing else imports into here.
 
 | Component | What it does |
 |---|---|
-| `JsonBase64Codec` | Encodes all outbound control-plane messages (connect, stream_config, heartbeat, agent_status) plus the legacy JSON `spectrum_frame`; decodes all inbound messages (connect_ack, stream_config_ack, error, disconnect). |
+| `JsonBase64Codec` | Encodes all outbound control-plane messages (connect, stream_config [with optional `request_id`], heartbeat, agent_status, `config_rejected`) plus the legacy JSON `spectrum_frame`; decodes all inbound messages (connect_ack, stream_config_ack, error, disconnect, `config_request`). |
 | `encode_spectrum_frame_binary_ws` | v0.4 binary WS frame: `[uint16_be header_len][JSON header][raw float32 LE payload]`. Selected by the session send loop when `wire_encoding == BINARY_WS`. |
-| Inbound types | `ConnectAck`, `StreamConfigAck`, `ServerError`, `Disconnect` |
+| Inbound types | `ConnectAck`, `StreamConfigAck`, `ServerError`, `Disconnect`, `ConfigRequest` (v0.5) |
 
-Message fields match protocol v0.3 except for the v0.4 binary `spectrum_frame` layout above. `HardwareInfo` is in the domain but **not wired into `encode_connect`** — the `hardware` block is always omitted from outbound `connect` messages.
+Message fields match protocol v0.5. `HardwareInfo` is in the domain but **not wired into `encode_connect`** — the `hardware` block is always omitted from outbound `connect` messages.
 
 ---
 
@@ -92,9 +95,10 @@ Message fields match protocol v0.3 except for the v0.4 binary `spectrum_frame` l
 | CONFIGURED | → STREAMING immediately |
 | STREAMING | → DISCONNECTED on error or cancellation |
 
-`_send_loop`: dequeues `SpectrumFrame`, encodes, applies `BandwidthLimiter`, sends.  
-`_recv_loop`: handles `disconnect`, `error` (fatal/non-fatal), runtime `stream_config_ack`.  
-`request_config_update()`: sends a new `stream_config` mid-session and waits for ack.
+`_send_loop`: dequeues `SpectrumFrame`, encodes, applies `BandwidthLimiter`, sends.
+`_recv_loop`: handles `disconnect`, `error` (fatal/non-fatal), runtime `stream_config_ack`, and v0.5 `config_request`.
+`request_config_update()`: sends a new `stream_config` mid-session and waits for ack. Body extracted into `_send_stream_config(rf, request_id=None)` so the inbound handler can reuse it.
+`_handle_config_request()` (v0.5): on inbound `config_request`, validates addressing, calls `source.apply_rf_update()` (or rejects with `CONFIG_REJECTED` if the source doesn't implement it), calls `processor.configure()`, then sends a fresh `stream_config` echoing the server's `request_id`. The server's `stream_config_ack` flows back through `_recv_loop` as a normal runtime ack.
 
 **`bandwidth.py`** — pluggable outbound rate limiting:
 
@@ -171,10 +175,6 @@ Message fields match protocol v0.3 except for the v0.4 binary `spectrum_frame` l
 
 These are things that exist in skeleton or partial form, or are missing entirely, that need to be addressed before MVP.
 
-### Missing: Real SDR hardware source
-
-There is no `IQSource` implementation that talks to real SDR hardware (RTL-SDR, HackRF, USRP, etc.). The three existing sources (Simulator, WAV, SigMF) are for development and testing only. A hardware source is the reason the agent exists.
-
 ### Missing: Production CLI entrypoint
 
 `run_demo.py` is a development script, not a production entrypoint. There is no `python -m agent` or installed console script. A production agent needs a way to be started from a config file or environment variables without modifying source.
@@ -207,7 +207,7 @@ The protocol spec includes an optional `hardware` block in `connect`. `HardwareI
 
 ## Post-MVP (do not implement)
 
-Per protocol v0.4 and CLAUDE.md — deferred:
+Per protocol v0.5 and CLAUDE.md — deferred:
 
 - `msgpack` wire encoding
 - `epoch_ms` replacing `timestamp_utc`
@@ -216,3 +216,4 @@ Per protocol v0.4 and CLAUDE.md — deferred:
 - `stream_id` beyond `"default"` (multi-tuner)
 - Planar IQ layout
 - REST snapshot endpoint
+- Per-source capability advertising (so the web UI can hide non-applicable controls — e.g. gain slider for file sources)

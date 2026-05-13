@@ -134,6 +134,19 @@ class FFTSemantics:
     bin_order: BinOrder = BinOrder.LOW_TO_HIGH
 
 
+@dataclass(frozen=True)
+class TunerConfig:
+    """Tuner-stage settings carried alongside RFConfig in a config_request.
+
+    Lives outside RFConfig because tuner settings are source-specific (RTL-SDR
+    has gain stages; WAV/SigMF have none) and never appear in the wire
+    stream_config.rf block.
+    """
+
+    gain_db: float | None = None
+    agc: bool = True
+
+
 # ---------------------------------------------------------------------------
 # Spectrum frame (output of processing, input to session)
 # ---------------------------------------------------------------------------

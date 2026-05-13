@@ -8,6 +8,7 @@ import { useViewerStream } from "../hooks/useViewerStream";
 import { AgentStatusBadge } from "../components/AgentStatusBadge";
 import { ViewerConnectionBadge } from "../components/ViewerConnectionBadge";
 import { WaterfallCanvas } from "../components/WaterfallCanvas";
+import { RfControlsPanel } from "../components/RfControlsPanel";
 import type { AgentResponse } from "../types/api";
 
 export function AgentLivePage() {
@@ -22,7 +23,8 @@ export function AgentLivePage() {
   });
 
   const statusQuery = useAgentStatus(agentId!);
-  const { connectionState, config, lastError, onFrame } = useViewerStream(agentId!);
+  const { connectionState, config, lastError, onFrame, sendRequestConfig } =
+    useViewerStream(agentId!);
 
   if (agentQuery.error instanceof ApiError && agentQuery.error.status === 404) {
     return (
@@ -91,6 +93,14 @@ export function AgentLivePage() {
           <span className="text-gray-600">dBFS</span>
         </span>
       </div>
+
+      {config && (
+        <RfControlsPanel
+          config={config.rf}
+          enabled={connectionState === "subscribed" && isOnline}
+          sendRequestConfig={sendRequestConfig}
+        />
+      )}
 
       <main className="flex flex-1 flex-col">
         <WaterfallCanvas config={config} onFrame={onFrame} dbfsFloor={dbfsFloor} dbfsCeiling={dbfsCeiling} />

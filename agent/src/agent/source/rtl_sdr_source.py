@@ -17,7 +17,14 @@ from typing import Any
 
 import numpy as np
 
-from agent.domain import Endianness, IQDescriptor, Layout, SampleFormat
+from agent.domain import (
+    Endianness,
+    IQDescriptor,
+    Layout,
+    RFConfig,
+    SampleFormat,
+    TunerConfig,
+)
 
 
 # pyrtlsdr 0.4.0 resolves several optional symbols (dithering, GPIO control)
@@ -103,6 +110,14 @@ class RTLSDRSource:
         # Backpressure counter: number of frames dropped because the consumer
         # queue was full. Visible for tests and telemetry.
         self.frames_dropped = 0
+        # Serializes apply_rf_update against itself; the read loop is allowed
+        # to run concurrently — its in-flight chunk during a retune is
+        # discarded explicitly via _retune_generation.
+        self._retune_lock = asyncio.Lock()
+        # Incremented on every successful apply_rf_update; the read loop tags
+        # each launched read with the generation it started under so the
+        # in-flight chunk that straddled a retune can be dropped.
+        self._retune_generation = 0
         self._descriptor = IQDescriptor(
             sample_format=SampleFormat.FLOAT32,
             endianness=Endianness.LITTLE,
@@ -202,6 +217,7 @@ class RTLSDRSource:
             if sdr is None:
                 # stop() raced with this iteration after the while-check.
                 return
+            read_generation = self._retune_generation
             try:
                 complex_samples = await loop.run_in_executor(
                     None, sdr.read_samples, chunk
@@ -219,11 +235,51 @@ class RTLSDRSource:
             if self._stopped:
                 return
 
+            # Drop the in-flight chunk if a retune occurred while we were
+            # blocked on read_samples — those samples were captured at the
+            # pre-retune RF config and don't belong to the new generation.
+            if read_generation != self._retune_generation:
+                continue
+
             arr = np.asarray(complex_samples, dtype=np.complex64)
             self._emit(output, arr.view(np.float32).tobytes())
 
             if sleep_per_chunk > 0:
                 await asyncio.sleep(sleep_per_chunk)
+
+    async def apply_rf_update(self, rf: RFConfig, tuner: TunerConfig | None) -> None:
+        """Live-retune the SDR. Only center_freq, sample_rate, and gain are
+        meaningful for the source; fft_size / window_fn are handled by the
+        FFT processor and are ignored here.
+        """
+        async with self._retune_lock:
+            sdr = self._sdr
+            if sdr is None:
+                raise RuntimeError("cannot retune before start() or after stop()")
+
+            sdr.sample_rate = rf.sample_rate_hz
+            sdr.center_freq = rf.center_freq_hz
+            if tuner is not None:
+                if tuner.agc:
+                    sdr.gain = "auto"
+                    self._gain = "auto"
+                elif tuner.gain_db is not None:
+                    sdr.gain = float(tuner.gain_db)
+                    self._gain = float(tuner.gain_db)
+                # tuner.agc=False with gain_db=None: leave gain unchanged.
+
+            self._sample_rate_hz = rf.sample_rate_hz
+            self._center_freq_hz = rf.center_freq_hz
+            self._descriptor = IQDescriptor(
+                sample_format=SampleFormat.FLOAT32,
+                endianness=Endianness.LITTLE,
+                layout=Layout.INTERLEAVED,
+                sample_rate_hz=rf.sample_rate_hz,
+                center_freq_hz=rf.center_freq_hz,
+                normalize=True,
+                dc_offset_remove=True,
+            )
+            self._retune_generation += 1
 
     def _emit(self, output: asyncio.Queue[bytes], buf: bytes) -> None:
         """Push ``buf`` into ``output`` without blocking the hardware loop.

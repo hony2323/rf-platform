@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from server.sessions.registry import SessionRegistry
 
 from server.app.deps import get_db
 from server.protocol.codec import (
     SUPPORTED_ENCODINGS,
     SUPPORTED_PROTOCOL_VERSION,
     AgentStatusMsg,
+    ConfigRejectedMsg,
     ConnectMsg,
     HeartbeatMsg,
     ProtocolError,
@@ -23,6 +29,7 @@ from server.protocol.codec import (
     decode_spectrum_frame_binary,
     encode_connect_ack,
     encode_error,
+    encode_request_config_error,
     encode_stream_config_ack,
     encode_viewer_spectrum_frame_binary,
     encode_viewer_stream_config,
@@ -59,6 +66,58 @@ def _check_session_id(actual: str, expected: str) -> str | None:
     if actual != expected:
         return "session_id does not match this connection"
     return None
+
+
+async def _agent_sender_loop(
+    websocket: WebSocket, session: LiveAgentSession
+) -> None:
+    """Drain the agent's outbound queue and push messages to the WS.
+
+    Started after the handshake completes. The receive loop owns the
+    lifetime — when it returns/raises, this task is cancelled.
+    """
+    while True:
+        msg = await session.agent_send_queue.get()
+        try:
+            await websocket.send_text(msg)
+        except Exception:
+            # WS is dying; let the recv loop discover and clean up.
+            return
+
+
+def _fanout_stream_config(
+    registry: SessionRegistry,
+    session: LiveAgentSession,
+    agent_id: str,
+    config_cache: dict,
+    server_request_id: str | None,
+) -> None:
+    """Broadcast a new stream_config to every viewer of a session.
+
+    When server_request_id is set, the viewer subscription that originated the
+    request (looked up in pending_config_requests) receives a viewer-side
+    request_id in its stream_config so its pending-promise can resolve.
+    """
+    originator_sub_id: str | None = None
+    viewer_req_id: str | None = None
+    if server_request_id is not None:
+        pending = session.pending_config_requests.get(server_request_id)
+        if pending is not None:
+            originator_sub_id = pending.subscription_id
+            viewer_req_id = pending.viewer_request_id
+
+    for viewer in registry.get_viewers_for_session(session.session_id):
+        per_viewer_req_id = (
+            viewer_req_id if viewer.subscription_id == originator_sub_id else None
+        )
+        try:
+            viewer.send_queue.put_nowait(
+                encode_viewer_stream_config(
+                    agent_id, session.session_id, config_cache, per_viewer_req_id
+                )
+            )
+        except asyncio.QueueFull:
+            pass
 
 
 @router.websocket("/ws/agent")
@@ -184,6 +243,9 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
         registry.add_session(session)
         logger.info("agent session started session_id=%s agent_id=%s", session_id, agent.id)
 
+        # Background sender for server→agent control messages (v0.5 config_request).
+        sender_task = asyncio.create_task(_agent_sender_loop(websocket, session))
+
         # ---- frame / heartbeat / status loop ----
         while True:
             if wire_encoding == "binary_ws":
@@ -227,7 +289,16 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                     )
                     continue
 
-            if isinstance(msg, (HeartbeatMsg, AgentStatusMsg, StreamConfigMsg, SpectrumFrameMsg)):
+            if isinstance(
+                msg,
+                (
+                    HeartbeatMsg,
+                    AgentStatusMsg,
+                    StreamConfigMsg,
+                    SpectrumFrameMsg,
+                    ConfigRejectedMsg,
+                ),
+            ):
                 err = _check_node_id(msg.node_id, agent.stable_node_id) or _check_session_id(
                     msg.session_id, session_id
                 )
@@ -265,15 +336,31 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
                 registry.update_stream_config(
                     session_id, msg.stream_id, new_bin_count, config_version, config_cache
                 )
-                viewer_cfg = encode_viewer_stream_config(str(agent.id), session_id, config_cache)
-                for viewer in registry.get_viewers_for_session(session_id):
-                    try:
-                        viewer.send_queue.put_nowait(viewer_cfg)
-                    except asyncio.QueueFull:
-                        pass
+                _fanout_stream_config(
+                    registry, session, str(agent.id), config_cache, msg.request_id
+                )
+                # Clear the pending request entry (if any) — this stream_config
+                # is the agent's response to that request.
+                if msg.request_id is not None:
+                    session.pending_config_requests.pop(msg.request_id, None)
                 await websocket.send_text(
                     encode_stream_config_ack(session_id, msg.stream_id, config_version)
                 )
+            elif isinstance(msg, ConfigRejectedMsg):
+                # Agent declined a server-pushed config_request. Route the
+                # error back to the viewer that initiated it; clear pending.
+                pending = session.pending_config_requests.pop(msg.request_id, None)
+                if pending is not None:
+                    viewer = registry.get_viewer(pending.subscription_id)
+                    if viewer is not None:
+                        try:
+                            viewer.send_queue.put_nowait(
+                                encode_request_config_error(
+                                    pending.viewer_request_id, msg.code, msg.message
+                                )
+                            )
+                        except asyncio.QueueFull:
+                            pass
             elif isinstance(msg, SpectrumFrameMsg):
                 if (
                     msg.stream_id != session.stream_id
@@ -371,6 +458,37 @@ async def ws_agent(websocket: WebSocket, db: AsyncSession = Depends(get_db)) -> 
         except Exception:
             pass
     finally:
+        if "sender_task" in locals():
+            sender_task.cancel()  # type: ignore[possibly-undefined]
+            with contextlib.suppress(asyncio.CancelledError):
+                await sender_task  # type: ignore[possibly-undefined]
         if session is not None:
+            # Notify any viewer with an in-flight config change that the
+            # agent went away before responding. Yield once so the viewer's
+            # drain loop has a chance to flush the queued error BEFORE
+            # remove_session() drains and evicts the queue.
+            had_pending = bool(session.pending_config_requests)
+            for pending in list(session.pending_config_requests.values()):
+                viewer = registry.get_viewer(pending.subscription_id)
+                if viewer is None:
+                    continue
+                try:
+                    viewer.send_queue.put_nowait(
+                        encode_request_config_error(
+                            pending.viewer_request_id,
+                            "CONFIG_REJECTED",
+                            "agent disconnected before responding",
+                        )
+                    )
+                except asyncio.QueueFull:
+                    pass
+            session.pending_config_requests.clear()
+            if had_pending:
+                # Two yields: first for the get() future to resolve, second
+                # for the drain loop to await websocket.send_text(). Without
+                # this, the error is overwritten by the close signal that
+                # remove_session() emits.
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
             registry.remove_session(session_id)
             logger.info("agent session ended session_id=%s agent_id=%s", session_id, agent.id)

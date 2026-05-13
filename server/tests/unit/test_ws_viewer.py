@@ -180,9 +180,9 @@ def _viewer_ws(app, user_id: str) -> _WS:
 def _connect_msg() -> dict:
     return {
         "msg_type": "connect",
-        "protocol_version": "0.3",
+        "protocol_version": "0.5",
         "node_id": "node_x",
-        "agent_version": "0.3.0",
+        "agent_version": "0.5.0",
         "requested_encoding": "json_base64",
     }
 
@@ -576,3 +576,209 @@ async def test_slow_viewer_full_queue_does_not_block_agent(app, db_state):
 
     await viewer.close()
     await agent.close()
+
+
+# ---------------------------------------------------------------------------
+# v0.5 — viewer-initiated config_request flow
+# ---------------------------------------------------------------------------
+
+
+def _request_config_msg(
+    request_id: str = "req_client_1",
+    center_freq_hz: int = 100_000_000,
+    sample_rate_hz: int = 2_400_000,
+    fft_size: int = 4096,
+) -> dict:
+    return {
+        "msg_type": "request_config",
+        "request_id": request_id,
+        "rf": {
+            "center_freq_hz": center_freq_hz,
+            "sample_rate_hz": sample_rate_hz,
+            "fft_size": fft_size,
+            "window_fn": "hann",
+        },
+        "tuner": {"gain_db": 30.5, "agc": False},
+    }
+
+
+async def test_request_config_forwards_to_agent(app, db_state):
+    """Viewer's request_config is delivered to the agent as config_request."""
+    agent = _agent_ws(app)
+    session_id = await _do_agent_handshake(agent)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # stream_config
+
+    await viewer.send_json(_request_config_msg(request_id="req_client_abc"))
+
+    forwarded = await agent.recv_json()
+    assert forwarded["msg_type"] == "config_request"
+    assert forwarded["session_id"] == session_id
+    assert forwarded["stream_id"] == "default"
+    assert forwarded["rf"]["center_freq_hz"] == 100_000_000
+    assert forwarded["rf"]["sample_rate_hz"] == 2_400_000
+    assert forwarded["rf"]["fft_size"] == 4096
+    assert forwarded["tuner"] == {"gain_db": 30.5, "agc": False}
+    # Server-generated request_id is opaque to us but must be present.
+    assert forwarded["request_id"].startswith("req_")
+
+    await viewer.close()
+    await agent.close()
+
+
+async def test_request_config_success_broadcasts_to_originator_with_request_id(
+    app, db_state
+):
+    """When the agent responds with a new stream_config carrying the server's
+    request_id, the server broadcasts to viewers and the originator's copy
+    carries the viewer's original request_id."""
+    agent = _agent_ws(app)
+    session_id = await _do_agent_handshake(agent, bin_count=4)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # initial stream_config
+
+    await viewer.send_json(_request_config_msg(request_id="req_viewer_X"))
+    forwarded = await agent.recv_json()
+    server_request_id = forwarded["request_id"]
+
+    # Agent applies and sends a fresh stream_config with the request_id.
+    cfg = _stream_config_msg(session_id, bin_count=8)
+    cfg["request_id"] = server_request_id
+    await agent.send_json(cfg)
+    await agent.recv_json()  # stream_config_ack — must drain before re-using ws
+
+    broadcast = await viewer.recv_json()
+    assert broadcast["msg_type"] == "stream_config"
+    assert broadcast["config_version"] == 2
+    # Originator gets back its own viewer-side request_id, not the server's.
+    assert broadcast.get("request_id") == "req_viewer_X"
+
+    await viewer.close()
+    await agent.close()
+
+
+async def test_request_config_busy_when_another_in_flight(app, db_state):
+    """A second request while one is in flight gets CONFIG_BUSY."""
+    agent = _agent_ws(app)
+    await _do_agent_handshake(agent)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # stream_config
+
+    await viewer.send_json(_request_config_msg(request_id="req_first"))
+    await agent.recv_json()  # consume the forwarded config_request
+
+    # Fire a second request before the agent has responded.
+    await viewer.send_json(_request_config_msg(request_id="req_second"))
+    err = await viewer.recv_json()
+    assert err["msg_type"] == "request_config_error"
+    assert err["request_id"] == "req_second"
+    assert err["code"] == "CONFIG_BUSY"
+
+    await viewer.close()
+    await agent.close()
+
+
+async def test_request_config_invalid_payload_rejected(app, db_state):
+    """Server-side validation: bad fft_size → INVALID_FRAME to that viewer."""
+    agent = _agent_ws(app)
+    await _do_agent_handshake(agent)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # stream_config
+
+    bad = _request_config_msg(request_id="req_bad", fft_size=1000)  # not power of two
+    await viewer.send_json(bad)
+    err = await viewer.recv_json()
+    assert err["msg_type"] == "request_config_error"
+    assert err["request_id"] == "req_bad"
+    assert err["code"] == "INVALID_FRAME"
+    assert "power of two" in err["message"]
+
+    await viewer.close()
+    await agent.close()
+
+
+async def test_config_rejected_from_agent_routed_to_originating_viewer(app, db_state):
+    """Agent sends config_rejected → server routes request_config_error to viewer."""
+    agent = _agent_ws(app)
+    await _do_agent_handshake(agent)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # initial stream_config
+
+    await viewer.send_json(_request_config_msg(request_id="req_drop"))
+    forwarded = await agent.recv_json()
+    server_request_id = forwarded["request_id"]
+
+    await agent.send_json(
+        {
+            "msg_type": "config_rejected",
+            "node_id": "node_x",
+            "session_id": forwarded["session_id"],
+            "request_id": server_request_id,
+            "code": "CONFIG_REJECTED",
+            "message": "source does not support live retune",
+        }
+    )
+
+    err = await viewer.recv_json()
+    assert err["msg_type"] == "request_config_error"
+    assert err["request_id"] == "req_drop"
+    assert err["code"] == "CONFIG_REJECTED"
+    assert "live retune" in err["message"]
+
+    await viewer.close()
+    await agent.close()
+
+
+async def test_agent_disconnect_drains_pending_and_notifies_viewer(app, db_state):
+    """When the agent disconnects mid-request, the viewer gets CONFIG_REJECTED."""
+    agent = _agent_ws(app)
+    await _do_agent_handshake(agent)
+
+    viewer = _viewer_ws(app, db_state["user_id"])
+    await viewer.connect()
+    await viewer.send_json({"msg_type": "subscribe", "agent_id": db_state["agent_id"]})
+    await viewer.recv_json()  # subscribe_ack
+    await viewer.recv_json()  # stream_config
+
+    await viewer.send_json(_request_config_msg(request_id="req_orphan"))
+    await agent.recv_json()  # consume the forwarded config_request
+
+    await agent.close()
+
+    # Viewer drain loop will see "agent_session ended" (AGENT_OFFLINE close)
+    # AND a request_config_error from the pending-drain path. Order is not
+    # strictly defined — just confirm both arrive.
+    seen_error = False
+    for _ in range(4):
+        try:
+            msg = await viewer.recv_json(timeout=1.0)
+        except WebSocketDisconnect:
+            break
+        if msg.get("msg_type") == "request_config_error" and msg.get("request_id") == "req_orphan":
+            assert msg["code"] == "CONFIG_REJECTED"
+            assert "disconnect" in msg["message"]
+            seen_error = True
+            break
+    assert seen_error, "viewer was not notified that the pending request was dropped"
+
+    await viewer.close()

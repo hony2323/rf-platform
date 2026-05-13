@@ -28,7 +28,9 @@ from agent.domain import (
     SpectrumFrame,
     WireEncoding,
 )
+from agent.processing import Processor
 from agent.protocol import (
+    ConfigRequest,
     ConnectAck,
     Disconnect,
     ProtocolCodec,
@@ -37,9 +39,10 @@ from agent.protocol import (
     encode_spectrum_frame_binary_ws,
 )
 from agent.session.bandwidth import make_limiter
+from agent.source.base import IQSource, LiveRetunableSource
 from agent.transport import Transport
 
-_PROTOCOL_VERSION = "0.3"
+_PROTOCOL_VERSION = "0.5"
 
 
 def _utc_now() -> str:
@@ -108,6 +111,8 @@ class Session:
         config: AgentConfig,
         transport: Transport,
         codec: ProtocolCodec,
+        source: IQSource | None = None,
+        processor: Processor | None = None,
         timings: PipelineTiming | None = None,
         metrics: MetricsCollector | None = None,
         on_connected: Callable[[], None] | None = None,
@@ -115,6 +120,8 @@ class Session:
         self._config = config
         self._transport = transport
         self._codec = codec
+        self._source = source
+        self._processor = processor
         self._timings = timings
         self._metrics = metrics
         self._on_connected = on_connected
@@ -125,6 +132,7 @@ class Session:
         self._frame_index: int = 0
         self._config_ack_event: asyncio.Event | None = None
         self._wire_encoding: WireEncoding = WireEncoding.JSON_BASE64
+        self._inbound_config_tasks: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     # Public state (read-only)
@@ -402,6 +410,13 @@ class Session:
                 if self._config_ack_event is not None:
                     self._config_ack_event.set()
                     self._config_ack_event = None
+            elif isinstance(msg, ConfigRequest):
+                # Server is pushing a new config (initiated by a viewer).
+                # Handle in a separate task so the recv_loop continues to
+                # deliver the resulting stream_config_ack.
+                task = asyncio.create_task(self._handle_config_request(msg))
+                self._inbound_config_tasks.add(task)
+                task.add_done_callback(self._inbound_config_tasks.discard)
 
     # ------------------------------------------------------------------
     # Config update (mid-session)
@@ -417,9 +432,20 @@ class Session:
             raise SessionError(
                 f"Config update only valid during STREAMING, not {self._state.value!r}"
             )
+        self._config_ack_event = asyncio.Event()
+        await self._send_stream_config(rf_config)
+        await self._config_ack_event.wait()
+
+    async def _send_stream_config(
+        self, rf_config: RFConfig, request_id: str | None = None
+    ) -> None:
+        """Encode and transmit a runtime stream_config message.
+
+        Shared by both the public request_config_update path (no request_id)
+        and the inbound config_request handler (echoes the server's request_id).
+        """
         cfg = self._config
         assert self._session_id is not None  # set during handshake
-        self._config_ack_event = asyncio.Event()
         await self._transport.send(
             self._codec.encode_stream_config(
                 node_id=cfg.identity.node_id,
@@ -428,6 +454,98 @@ class Session:
                 timestamp_utc=_utc_now(),
                 rf_config=rf_config,
                 fft_semantics=FFTSemantics(),
+                request_id=request_id,
             )
         )
-        await self._config_ack_event.wait()
+
+    async def _send_config_rejected(
+        self, request_id: str, code: str, message: str
+    ) -> None:
+        cfg = self._config
+        assert self._session_id is not None
+        await self._transport.send(
+            self._codec.encode_config_rejected(
+                node_id=cfg.identity.node_id,
+                session_id=self._session_id,
+                request_id=request_id,
+                code=code,
+                message=message,
+            )
+        )
+
+    async def _handle_config_request(self, msg: ConfigRequest) -> None:
+        """Apply a server-pushed config_request to the running source/processor.
+
+        On any failure, transmits a `config_rejected` carrying the request_id.
+        On success, transmits a fresh `stream_config` carrying the request_id;
+        the server's `stream_config_ack` flows back through `_recv_loop` as a
+        normal runtime ack and updates `_config_version` / `_frame_index`.
+        """
+        cfg = self._config
+        try:
+            # Validate addressing
+            if msg.session_id != self._session_id:
+                await self._send_config_rejected(
+                    msg.request_id,
+                    "INVALID_FRAME",
+                    f"session_id mismatch: expected {self._session_id!r}, "
+                    f"got {msg.session_id!r}",
+                )
+                return
+            if msg.stream_id != cfg.stream_id:
+                await self._send_config_rejected(
+                    msg.request_id,
+                    "INVALID_FRAME",
+                    f"stream_id mismatch: expected {cfg.stream_id!r}, "
+                    f"got {msg.stream_id!r}",
+                )
+                return
+
+            # Session must have been built with a source + processor (the
+            # production runner always provides them; bare-bones unit-test
+            # sessions may not).
+            if self._source is None or self._processor is None:
+                await self._send_config_rejected(
+                    msg.request_id,
+                    "CONFIG_REJECTED",
+                    "agent does not support live config updates",
+                )
+                return
+
+            # Source must support live retune
+            if not isinstance(self._source, LiveRetunableSource):
+                await self._send_config_rejected(
+                    msg.request_id,
+                    "CONFIG_REJECTED",
+                    "source does not support live retune",
+                )
+                return
+
+            # Apply to source first (hardware retune), then to FFT processor.
+            try:
+                await self._source.apply_rf_update(msg.rf, msg.tuner)
+            except Exception as exc:
+                await self._send_config_rejected(
+                    msg.request_id,
+                    "CONFIG_REJECTED",
+                    f"source.apply_rf_update failed: {exc}",
+                )
+                return
+
+            try:
+                self._processor.configure(msg.rf)
+            except Exception as exc:
+                await self._send_config_rejected(
+                    msg.request_id,
+                    "CONFIG_REJECTED",
+                    f"processor.configure failed: {exc}",
+                )
+                return
+
+            # Emit the new stream_config carrying the request_id so the server
+            # can correlate its in-flight tracking.
+            await self._send_stream_config(msg.rf, request_id=msg.request_id)
+        except Exception:
+            # Last-resort: never let a handler crash propagate; transport may
+            # already be closing if we got here.
+            pass

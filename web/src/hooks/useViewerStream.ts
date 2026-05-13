@@ -1,12 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { viewerWsUrl } from "../api/viewer";
 import type {
+  RfConfigRequest,
+  TunerConfigRequest,
   ViewerInboundMessage,
   ViewerSpectrumFrameMessage,
   ViewerStreamConfigMessage,
 } from "../types/viewer";
 
 type ViewerControlMessage = Exclude<ViewerInboundMessage, ViewerSpectrumFrameMessage>;
+
+export class RequestConfigError extends Error {
+  constructor(public readonly code: string, message: string) {
+    super(message);
+    this.name = "RequestConfigError";
+  }
+}
+
+interface PendingRequest {
+  resolve: () => void;
+  reject: (err: Error) => void;
+}
+
+function newRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `req_${crypto.randomUUID()}`;
+  }
+  return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function parseBinarySpectrumFrame(buffer: ArrayBuffer): ViewerSpectrumFrameMessage | null {
   if (buffer.byteLength < 2) return null;
@@ -49,6 +70,10 @@ export interface ViewerStreamResult {
   config: ViewerStreamConfigMessage | null;
   lastError: string | null;
   onFrame: (cb: (frame: ViewerSpectrumFrameMessage) => void) => () => void;
+  sendRequestConfig: (
+    rf: RfConfigRequest,
+    tuner: TunerConfigRequest | null,
+  ) => Promise<void>;
 }
 
 const BACKOFF_MIN_MS = 1000;
@@ -71,6 +96,14 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
   const retryEnabledRef = useRef(false);
   // True if the server sent an error message — onclose skips the generic "no ack" message.
   const gotServerErrorRef = useRef(false);
+  // In-flight request_config promises keyed by viewer-side request_id.
+  const pendingRequestsRef = useRef<Map<string, PendingRequest>>(new Map());
+
+  const rejectAllPending = useCallback((err: Error) => {
+    const pending = pendingRequestsRef.current;
+    pending.forEach((entry) => entry.reject(err));
+    pending.clear();
+  }, []);
 
   const connect = useCallback(() => {
     if (wsRef.current) return;
@@ -110,6 +143,19 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
       } else if (msg.msg_type === "stream_config") {
         configRef.current = msg;
         setConfig(msg);
+        if (msg.request_id) {
+          const pending = pendingRequestsRef.current.get(msg.request_id);
+          if (pending) {
+            pendingRequestsRef.current.delete(msg.request_id);
+            pending.resolve();
+          }
+        }
+      } else if (msg.msg_type === "request_config_error") {
+        const pending = pendingRequestsRef.current.get(msg.request_id);
+        if (pending) {
+          pendingRequestsRef.current.delete(msg.request_id);
+          pending.reject(new RequestConfigError(msg.code, msg.message));
+        }
       } else if (msg.msg_type === "error") {
         gotServerErrorRef.current = true;
         setLastError(msg.message);
@@ -124,6 +170,7 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
     ws.onclose = () => {
       if (wsRef.current !== ws) return;
       wsRef.current = null;
+      rejectAllPending(new RequestConfigError("CONFIG_REJECTED", "connection closed"));
       if (!retryEnabledRef.current) {
         // Never subscribed or hit permanent error — don't reconnect.
         if (!gotServerErrorRef.current) {
@@ -162,6 +209,7 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
         wsRef.current.close();
         wsRef.current = null;
       }
+      rejectAllPending(new RequestConfigError("CONFIG_REJECTED", "page navigated away"));
       retryEnabledRef.current = false;
       gotServerErrorRef.current = false;
       retryCountRef.current = 0;
@@ -170,7 +218,7 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
       setConfig(null);
       setLastError(null);
     };
-  }, [connect]);
+  }, [connect, rejectAllPending]);
 
   const onFrame = useCallback(
     (cb: (frame: ViewerSpectrumFrameMessage) => void) => {
@@ -182,5 +230,38 @@ export function useViewerStream(agentId: string): ViewerStreamResult {
     [],
   );
 
-  return { connectionState, config, lastError, onFrame };
+  const sendRequestConfig = useCallback(
+    (rf: RfConfigRequest, tuner: TunerConfigRequest | null): Promise<void> => {
+      const ws = wsRef.current;
+      if (ws === null || ws.readyState !== WebSocket.OPEN) {
+        return Promise.reject(
+          new RequestConfigError("CONFIG_REJECTED", "not connected"),
+        );
+      }
+      const requestId = newRequestId();
+      const payload: Record<string, unknown> = {
+        msg_type: "request_config",
+        request_id: requestId,
+        rf,
+      };
+      if (tuner !== null) payload.tuner = tuner;
+      return new Promise<void>((resolve, reject) => {
+        pendingRequestsRef.current.set(requestId, { resolve, reject });
+        try {
+          ws.send(JSON.stringify(payload));
+        } catch (err) {
+          pendingRequestsRef.current.delete(requestId);
+          reject(
+            new RequestConfigError(
+              "CONFIG_REJECTED",
+              err instanceof Error ? err.message : "send failed",
+            ),
+          );
+        }
+      });
+    },
+    [],
+  );
+
+  return { connectionState, config, lastError, onFrame, sendRequestConfig };
 }

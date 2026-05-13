@@ -19,6 +19,8 @@ from agent.domain import (
     HardwareInfo,
     RFConfig,
     SpectrumFrame,
+    TunerConfig,
+    WindowFunction,
     WireEncoding,
 )
 
@@ -59,7 +61,18 @@ class ServerError:
     frame_index: int | None = None
 
 
-InboundMessage = ConnectAck | StreamConfigAck | Disconnect | ServerError
+@dataclass(frozen=True)
+class ConfigRequest:
+    """Server→agent push of a new RF/FFT/tuner config (protocol v0.5+)."""
+
+    session_id: str
+    stream_id: str
+    request_id: str
+    rf: RFConfig
+    tuner: TunerConfig | None = None
+
+
+InboundMessage = ConnectAck | StreamConfigAck | Disconnect | ServerError | ConfigRequest
 
 
 # ---------------------------------------------------------------------------
@@ -92,8 +105,28 @@ class ProtocolCodec(Protocol):
         timestamp_utc: str,
         rf_config: RFConfig,
         fft_semantics: FFTSemantics,
+        request_id: str | None = None,
     ) -> str:
-        """Encode a `stream_config` message → JSON string."""
+        """Encode a `stream_config` message → JSON string.
+
+        `request_id` is set when this stream_config is the agent's response to a
+        server-pushed `config_request` (protocol v0.5+).
+        """
+        ...
+
+    def encode_config_rejected(
+        self,
+        node_id: str,
+        session_id: str,
+        request_id: str,
+        code: str,
+        message: str,
+    ) -> str:
+        """Encode a `config_rejected` message → JSON string (v0.5+).
+
+        Sent in response to a server `config_request` that the agent cannot
+        honor (e.g. the source does not support live retune).
+        """
         ...
 
     def encode_spectrum_frame(
@@ -195,6 +228,7 @@ class JsonBase64Codec:
         timestamp_utc: str,
         rf_config: RFConfig,
         fft_semantics: FFTSemantics,
+        request_id: str | None = None,
     ) -> str:
         msg: dict[str, Any] = {
             "msg_type": "stream_config",
@@ -220,7 +254,28 @@ class JsonBase64Codec:
                 "bin_order": fft_semantics.bin_order.value,
             },
         }
+        if request_id is not None:
+            msg["request_id"] = request_id
         return json.dumps(msg)
+
+    def encode_config_rejected(
+        self,
+        node_id: str,
+        session_id: str,
+        request_id: str,
+        code: str,
+        message: str,
+    ) -> str:
+        return json.dumps(
+            {
+                "msg_type": "config_rejected",
+                "node_id": node_id,
+                "session_id": session_id,
+                "request_id": request_id,
+                "code": code,
+                "message": message,
+            }
+        )
 
     def encode_spectrum_frame(
         self,
@@ -312,6 +367,7 @@ class JsonBase64Codec:
             "stream_config_ack": self._decode_stream_config_ack,
             "disconnect": self._decode_disconnect,
             "error": self._decode_server_error,
+            "config_request": self._decode_config_request,
         }
         handler = dispatch.get(msg_type)  # type: ignore[arg-type]
         if handler is None:
@@ -390,6 +446,74 @@ class JsonBase64Codec:
             stream_id=stream_id,
             config_version=config_version,
             frame_index=frame_index,
+        )
+
+    def _decode_config_request(self, msg: dict[str, Any]) -> ConfigRequest:
+        try:
+            session_id = _require_str(msg["session_id"], "session_id")
+            stream_id = _require_str(msg["stream_id"], "stream_id")
+            request_id = _require_str(msg["request_id"], "request_id")
+            rf_dict = msg["rf"]
+        except KeyError as exc:
+            raise ValueError(f"Missing required field: {exc}") from exc
+
+        if not isinstance(rf_dict, dict):
+            raise ValueError("'rf' must be an object")
+
+        try:
+            center_freq_hz = _require_int(
+                rf_dict["center_freq_hz"], "rf.center_freq_hz"
+            )
+            sample_rate_hz = _require_int(
+                rf_dict["sample_rate_hz"], "rf.sample_rate_hz"
+            )
+            fft_size = _require_int(rf_dict["fft_size"], "rf.fft_size")
+        except KeyError as exc:
+            raise ValueError(f"Missing required rf field: {exc}") from exc
+
+        window_fn_raw = rf_dict.get("window_fn", "hann")
+        try:
+            window_fn = WindowFunction(window_fn_raw)
+        except ValueError:
+            raise ValueError(f"Unknown window_fn value: {window_fn_raw!r}")
+
+        rf = RFConfig(
+            center_freq_hz=center_freq_hz,
+            sample_rate_hz=sample_rate_hz,
+            fft_size=fft_size,
+            window_fn=window_fn,
+        )
+
+        tuner: TunerConfig | None = None
+        if (tuner_dict := msg.get("tuner")) is not None:
+            if not isinstance(tuner_dict, dict):
+                raise ValueError("'tuner' must be an object")
+            gain_db_raw = tuner_dict.get("gain_db")
+            gain_db: float | None
+            if gain_db_raw is None:
+                gain_db = None
+            elif isinstance(gain_db_raw, bool) or not isinstance(
+                gain_db_raw, (int, float)
+            ):
+                raise ValueError(
+                    "'tuner.gain_db' must be a number or null, got "
+                    f"{type(gain_db_raw).__name__!r}"
+                )
+            else:
+                gain_db = float(gain_db_raw)
+            agc_raw = tuner_dict.get("agc", True)
+            if not isinstance(agc_raw, bool):
+                raise ValueError(
+                    f"'tuner.agc' must be a boolean, got {type(agc_raw).__name__!r}"
+                )
+            tuner = TunerConfig(gain_db=gain_db, agc=agc_raw)
+
+        return ConfigRequest(
+            session_id=session_id,
+            stream_id=stream_id,
+            request_id=request_id,
+            rf=rf,
+            tuner=tuner,
         )
 
 

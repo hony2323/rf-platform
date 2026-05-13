@@ -278,7 +278,12 @@ def _make_runner(
         return p
 
     def make_session(
-        c: AgentConfig, transport: Any, codec: Any, on_connected: Any = None
+        c: AgentConfig,
+        transport: Any,
+        codec: Any,
+        source: Any,
+        processor: Any,
+        on_connected: Any = None,
     ) -> FakeSession:
         s = FakeSession(raises=session_raises)
         repo.sessions.append(s)

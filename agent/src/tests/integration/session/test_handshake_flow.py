@@ -62,7 +62,7 @@ async def test_session_handshake_happy_path_with_fake_server() -> None:
     connect = json.loads(sent[0])
     assert connect["msg_type"] == "connect"
     assert connect["node_id"] == config.identity.node_id
-    assert connect["protocol_version"] == "0.3"
+    assert connect["protocol_version"] == "0.5"
     assert connect["agent_version"] == config.identity.agent_version
     assert connect["requested_encoding"] == "json_base64"
 

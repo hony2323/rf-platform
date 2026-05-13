@@ -7,9 +7,9 @@ A source produces blocks of raw IQ bytes. It knows how to talk to hardware
 from __future__ import annotations
 
 import asyncio
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
-from agent.domain import IQDescriptor
+from agent.domain import IQDescriptor, RFConfig, TunerConfig
 
 
 class IQSource(Protocol):
@@ -34,5 +34,27 @@ class IQSource(Protocol):
         Each item pushed is a raw bytes buffer matching self.descriptor.
         The caller owns the queue and its bounds.
         Raises asyncio.CancelledError on shutdown.
+        """
+        ...
+
+
+@runtime_checkable
+class LiveRetunableSource(Protocol):
+    """Optional capability: source supports live RF / tuner reconfiguration.
+
+    Sources opt in by implementing `apply_rf_update`. Use `isinstance(src,
+    LiveRetunableSource)` to dispatch; sources without the method are
+    treated as non-tunable and a `config_request` against them is rejected.
+    """
+
+    async def apply_rf_update(self, rf: RFConfig, tuner: TunerConfig | None) -> None:
+        """Apply a new RF / tuner config to the running source.
+
+        Implementations must:
+          - update any hardware-facing state (center_freq, sample_rate, gain)
+          - replace `self._descriptor` with a fresh frozen `IQDescriptor`
+            reflecting the new values
+          - raise on any failure; the caller maps the exception to
+            `CONFIG_REJECTED` on the wire
         """
         ...

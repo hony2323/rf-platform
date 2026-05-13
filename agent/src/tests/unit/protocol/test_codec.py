@@ -37,8 +37,8 @@ _NODE_ID = "node_a1b2c3"
 _SESSION_ID = "ses_01HX"
 _STREAM_ID = "default"
 _TIMESTAMP = "2026-03-26T10:00:00.000Z"
-_PROTOCOL_VERSION = "0.3"
-_AGENT_VERSION = "0.3.0"
+_PROTOCOL_VERSION = "0.5"
+_AGENT_VERSION = "0.5.0"
 
 # ---------------------------------------------------------------------------
 # Fixtures and factories
@@ -89,7 +89,7 @@ def test_encode_connect_emits_expected_fields(codec: JsonBase64Codec) -> None:
     )
     msg = json.loads(raw)
     assert msg["msg_type"] == "connect"
-    assert msg["protocol_version"] == "0.3"
+    assert msg["protocol_version"] == "0.5"
     assert msg["node_id"] == _NODE_ID
     assert msg["agent_version"] == _AGENT_VERSION
     assert msg["requested_encoding"] == "json_base64"

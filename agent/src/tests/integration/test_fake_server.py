@@ -26,8 +26,8 @@ from fake_server import FakeAgentServer, FakeServerConfig
 _CONNECT_MSG: dict[str, Any] = {
     "msg_type": "connect",
     "node_id": "test-node",
-    "protocol_version": "0.3",
-    "agent_version": "0.3.0",
+    "protocol_version": "0.5",
+    "agent_version": "0.5.0",
     "requested_encoding": "json_base64",
 }
 

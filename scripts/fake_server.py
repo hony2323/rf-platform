@@ -112,7 +112,7 @@ def _validate_connect(msg: dict[str, Any]) -> str | None:
     """Return an error string on failure, None on success."""
     if msg.get("msg_type") != "connect":
         return f"expected msg_type=connect, got {msg.get('msg_type')!r}"
-    if msg.get("protocol_version") != "0.3":
+    if msg.get("protocol_version") != "0.5":
         return f"expected protocol_version=0.3, got {msg.get('protocol_version')!r}"
     if msg.get("requested_encoding") not in _KNOWN_ENCODINGS:
         return (
