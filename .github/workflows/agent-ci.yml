@@ -87,3 +87,16 @@ jobs:
           pytest -m "not integration" -v \
             src/tests/unit/source/test_rtl_sdr_source.py \
             src/tests/unit/cli/test_doctor.py
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install hatch
+      - run: hatch build
+      - run: pip install dist/*.whl
+      - run: python -c "import agent"
