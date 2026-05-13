@@ -1,0 +1,69 @@
+name: Release Agent
+
+on:
+  push:
+    branches: [master]
+    paths: ["agent/**"]
+
+concurrency:
+  group: release-agent
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Bump version and tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      released: ${{ steps.psr.outputs.released }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install python-semantic-release
+
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version and tag
+        id: psr
+        working-directory: agent
+        run: semantic-release version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: Publish to PyPI
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install hatch
+
+      - run: hatch build
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: agent/dist
+          password: ${{ secrets.PYPI_TOKEN }}

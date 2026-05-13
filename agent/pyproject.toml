@@ -71,3 +71,14 @@ src = ["src", "src/tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "UP"]
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+branch = "master"
+tag_format = "agent-v{version}"
+commit_message = "chore(release): agent {version} [skip ci]"
+major_on_zero = false
+
+[tool.semantic_release.commit_parser_options]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf", "refactor"]
