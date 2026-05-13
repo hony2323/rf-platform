@@ -3,7 +3,7 @@ url = "ws://localhost:8000/ws/agent"
 token = "86466f8e9a36fcc9fcf496fabf9d4fe166cd0395c817c8d49eefdc9ca1a845c6"
 
 [identity]
-node_id = "local-agent"
+node_id = "prd1"
 
 [source]
 # RTL-SDR hardware mode

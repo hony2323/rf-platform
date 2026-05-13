@@ -44,6 +44,19 @@ tasks:
     cmds:
       - uv run uvicorn server.app.api:create_app --factory --reload --host 0.0.0.0 --port 8000
 
+  dev:agent:
+    desc: "WSL: bind RTL-SDR via usbipd (Windows UAC prompt), attach to WSL, then start streaming"
+    dir: agent
+    cmds:
+      - cmd: |
+          powershell.exe -NoProfile -Command "Start-Process 'C:\Program Files\usbipd-win\usbipd.exe' -Verb RunAs -Wait -ArgumentList 'bind','--hardware-id','0bda:2838'"
+        ignore_error: true
+      - cmd: uv run rf-agent setup wsl-attach
+        ignore_error: true
+      - cmd: sudo modprobe -r dvb_usb_rtl28xxu
+        ignore_error: true
+      - uv run rf-agent connect
+
   dev:web:
     desc: Run the Vite dev server
     dir: web
